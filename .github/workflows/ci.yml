@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Swift build and launcher checks
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build app
+        run: |
+          swiftc Sources/DrinkingProject/main.swift \
+            -o /tmp/DrinkingProject-check \
+            -framework AppKit \
+            -framework AVFoundation \
+            -framework AVKit
+
+      - name: Check shell launchers
+        run: zsh -n scripts/*.sh *.command
