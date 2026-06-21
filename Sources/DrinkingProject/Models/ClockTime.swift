@@ -1,0 +1,18 @@
+import Foundation
+
+struct ClockTime: Codable, Hashable, Comparable {
+    var hour: Int
+    var minute: Int
+
+    var minutesSinceMidnight: Int {
+        max(0, min(23, hour)) * 60 + max(0, min(59, minute))
+    }
+
+    var label: String {
+        String(format: "%02d:%02d", max(0, min(23, hour)), max(0, min(59, minute)))
+    }
+
+    static func < (lhs: ClockTime, rhs: ClockTime) -> Bool {
+        lhs.minutesSinceMidnight < rhs.minutesSinceMidnight
+    }
+}

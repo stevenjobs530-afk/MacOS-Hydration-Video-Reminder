@@ -4,15 +4,10 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 LABEL="com.local.drinkingproject"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-BINARY="$PROJECT_DIR/.build/release/DrinkingProject"
+BINARY="$PROJECT_DIR/dist/Drinking Project.app/Contents/MacOS/DrinkingProject"
 
 cd "$PROJECT_DIR"
-mkdir -p .build/release
-swiftc Sources/DrinkingProject/main.swift \
-  -o .build/release/DrinkingProject \
-  -framework AppKit \
-  -framework AVFoundation \
-  -framework AVKit
+"$PROJECT_DIR/script/build_and_run.sh" --build-only
 
 mkdir -p "$HOME/Library/LaunchAgents"
 rm -f "$PLIST"
@@ -20,6 +15,9 @@ rm -f "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :Label string $LABEL" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments array" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string $BINARY" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:1 string --project-dir" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:2 string $PROJECT_DIR" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:3 string --resume-on-launch" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :WorkingDirectory string $PROJECT_DIR" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :RunAtLoad bool true" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :StandardOutPath string /tmp/drinkingproject.out.log" "$PLIST"
