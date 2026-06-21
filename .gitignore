@@ -16,6 +16,10 @@ DerivedData/
 视频/*
 !视频/.gitkeep
 !视频/README.md
+!视频/视频素材/
+视频/视频素材/*
+!视频/视频素材/.gitkeep
+!视频/视频素材/README.md
 
 # Common media extensions in case assets are placed elsewhere.
 *.mp4

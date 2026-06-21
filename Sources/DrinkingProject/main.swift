@@ -2,16 +2,36 @@ import AppKit
 import AVFoundation
 import AVKit
 import IOKit
+import WebKit
 
 private let projectDirectory = URL(
     fileURLWithPath: FileManager.default.currentDirectoryPath,
     isDirectory: true
 )
 private let videoDirectory = projectDirectory.appendingPathComponent("视频", isDirectory: true)
+private let videoMaterialDirectory = videoDirectory.appendingPathComponent("视频素材", isDirectory: true)
+private let reminderWebDirectory = projectDirectory
+    .appendingPathComponent("Test ", isDirectory: true)
+    .appendingPathComponent("ReminderWeb", isDirectory: true)
 
 private enum DefaultsKey {
     static let remindersEnabled = "remindersEnabled"
     static let pausedDate = "pausedDate"
+    static let videoPlaybackMode = "videoPlaybackMode"
+}
+
+private enum VideoPlaybackMode: String {
+    case advanceOnEnd
+    case loopSelected
+
+    static func load() -> VideoPlaybackMode {
+        let rawValue = UserDefaults.standard.string(forKey: DefaultsKey.videoPlaybackMode)
+        return rawValue.flatMap(VideoPlaybackMode.init(rawValue:)) ?? .advanceOnEnd
+    }
+
+    func save() {
+        UserDefaults.standard.set(rawValue, forKey: DefaultsKey.videoPlaybackMode)
+    }
 }
 
 private final class ReminderSettings {
@@ -55,31 +75,86 @@ private final class ReminderSettings {
 }
 
 private final class VideoScanner {
-    static func randomPlayableVideoURL() -> URL? {
-        let allowedExtensions = Set(["mp4", "mov", "m4v"])
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: videoDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
+    private struct ScanResult {
+        let candidates: [URL]
+        let playableVideos: [URL]
+        let notPlayableVideos: [URL]
+    }
+
+    private static var shuffledQueue: [URL] = []
+    private static var lastPlayableSignature: [String] = []
+
+    static func nextPlayableVideoURL() -> URL? {
+        let result = scanVideos()
+        let playableSignature = result.playableVideos.map(\.path)
+
+        if playableSignature != lastPlayableSignature || shuffledQueue.isEmpty {
+            shuffledQueue = result.playableVideos.shuffled()
+            lastPlayableSignature = playableSignature
         }
 
-        let candidates = files
-            .filter { url in
-                !url.lastPathComponent.hasPrefix("._")
-                    && allowedExtensions.contains(url.pathExtension.lowercased())
-                    && ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false)
+        let selectedVideo = shuffledQueue.popLast()
+        logScanResult(result, selectedVideo: selectedVideo)
+        return selectedVideo
+    }
+
+    private static func scanVideos() -> ScanResult {
+        let allowedExtensions = Set(["mp4", "mov", "m4v"])
+        let searchDirectories = [videoMaterialDirectory, videoDirectory]
+        var seenPaths = Set<String>()
+        var candidates: [URL] = []
+
+        for directory in searchDirectories {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
             }
-            .sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+
+            for url in files {
+                guard
+                    !url.lastPathComponent.hasPrefix("._"),
+                    allowedExtensions.contains(url.pathExtension.lowercased()),
+                    ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false),
+                    !seenPaths.contains(url.path)
+                else {
+                    continue
+                }
+                candidates.append(url)
+                seenPaths.insert(url.path)
             }
+        }
+
+        candidates.sort {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
 
         let playableVideos = candidates.filter { url in
             AVURLAsset(url: url).isPlayable
         }
+        let playablePaths = Set(playableVideos.map(\.path))
+        let notPlayableVideos = candidates.filter { !playablePaths.contains($0.path) }
 
-        return playableVideos.randomElement()
+        return ScanResult(
+            candidates: candidates,
+            playableVideos: playableVideos,
+            notPlayableVideos: notPlayableVideos
+        )
+    }
+
+    private static func logScanResult(_ result: ScanResult, selectedVideo: URL?) {
+        let notPlayableNames = result.notPlayableVideos
+            .map(\.lastPathComponent)
+            .joined(separator: ",")
+        let selectedName = selectedVideo?.lastPathComponent ?? "none"
+        print(
+            "[DrinkingProject] video_scan candidate_count=\(result.candidates.count) " +
+                "playable_count=\(result.playableVideos.count) " +
+                "selected_video=\(selectedName) " +
+                "not_playable_files=\(notPlayableNames.isEmpty ? "none" : notPlayableNames)"
+        )
     }
 }
 
@@ -219,28 +294,34 @@ private final class ReminderWindow: NSWindow {
     }
 }
 
-private final class ReminderWindowController: NSWindowController, NSWindowDelegate {
+private final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
+    private var primaryEndObserver: NSObjectProtocol?
+    private var webView: WKWebView?
     private var secondaryWindows: [ReminderWindow] = []
     private var secondaryPlayers: [AVQueuePlayer] = []
     private var secondaryLoopers: [AVPlayerLooper] = []
-    private var secondaryProgressLabels: [NSTextField] = []
+    private var secondaryWebViews: [WKWebView] = []
+    private var currentVideoURL: URL?
+    private var playbackMode = VideoPlaybackMode.load()
     private var unlockTimer: Timer?
     private var clickCooldownTimer: Timer?
     private var remainingLockSeconds = 30
     private var confirmationCount = 0
     private var lastConfirmationDate: Date?
     private var mayClose = false
-
-    private let messageLabel = NSTextField(labelWithString: "休息一下，喝点水，保护眼睛。")
-    private let progressLabel = NSTextField(labelWithString: "已确认 0/3")
-    private let lockLabel = NSTextField(labelWithString: "30 秒后可确认")
-    private let confirmButton = NSButton(title: "已饮水", target: nil, action: nil)
+    private var statusText = "30 秒后再确认"
+    private var hintText = "把杯子拿起来，慢慢喝完这一口。"
+    private var buttonText = "等待中"
+    private var isConfirmationVisible = false
+    private var isConfirmationEnabled = false
+    private let hasPlayableVideo: Bool
 
     var onClosed: (() -> Void)?
 
     init(videoURL: URL?) {
+        hasPlayableVideo = videoURL != nil
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let window = ReminderWindow(
             contentRect: screenFrame,
@@ -256,6 +337,7 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
         window.delegate = self
         buildInterface(videoURL: videoURL)
         buildSecondaryScreenWindows(videoURL: videoURL)
+        setCurrentVideo(videoURL, shouldPlay: false)
     }
 
     required init?(coder: NSCoder) {
@@ -290,26 +372,53 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
         cleanup()
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let role = webView === self.webView ? "primary" : "secondary"
+        sendState(to: webView, role: role)
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "drinkingProject" else { return }
+        guard
+            let body = message.body as? [String: Any],
+            let type = body["type"] as? String
+        else {
+            return
+        }
+
+        switch type {
+        case "confirmWater":
+            confirmWater()
+        case "setPlaybackMode":
+            guard
+                let rawMode = body["mode"] as? String,
+                let mode = VideoPlaybackMode(rawValue: rawMode)
+            else {
+                return
+            }
+            setPlaybackMode(mode)
+        default:
+            break
+        }
+    }
+
     private func buildInterface(videoURL: URL?) {
         guard let contentView = window?.contentView else { return }
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = NSColor.black.cgColor
 
         if let videoURL {
-            let item = AVPlayerItem(url: videoURL)
-            let queuePlayer = AVQueuePlayer(playerItem: item)
+            let queuePlayer = AVQueuePlayer()
             queuePlayer.isMuted = false
             queuePlayer.volume = 1.0
-            queuePlayer.actionAtItemEnd = .none
             player = queuePlayer
-            looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
 
             addCenteredPlayerView(player: queuePlayer, videoURL: videoURL, to: contentView)
         }
 
         let dimView = NSView()
         dimView.wantsLayer = true
-        dimView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.36).cgColor
+        dimView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.08).cgColor
         dimView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(dimView)
         NSLayoutConstraint.activate([
@@ -319,45 +428,7 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
             dimView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 22
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-
-        configureLabels()
-        configureButton()
-
-        stack.addArrangedSubview(messageLabel)
-        stack.addArrangedSubview(progressLabel)
-        stack.addArrangedSubview(lockLabel)
-        stack.addArrangedSubview(confirmButton)
-
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 36),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -36),
-            confirmButton.widthAnchor.constraint(equalToConstant: 180),
-            confirmButton.heightAnchor.constraint(equalToConstant: 52)
-        ])
-    }
-
-    private func configureLabels() {
-        messageLabel.font = NSFont.systemFont(ofSize: 38, weight: .semibold)
-        messageLabel.textColor = .white
-        messageLabel.alignment = .center
-        messageLabel.maximumNumberOfLines = 2
-        messageLabel.lineBreakMode = .byWordWrapping
-
-        progressLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .medium)
-        progressLabel.textColor = .white
-        progressLabel.alignment = .center
-
-        lockLabel.font = NSFont.systemFont(ofSize: 18, weight: .regular)
-        lockLabel.textColor = NSColor.white.withAlphaComponent(0.9)
-        lockLabel.alignment = .center
+        webView = addReminderWebView(to: contentView, role: "primary")
     }
 
     private func buildSecondaryScreenWindows(videoURL: URL?) {
@@ -386,22 +457,18 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
             secondaryWindow.contentView = contentView
 
             if let videoURL {
-                let item = AVPlayerItem(url: videoURL)
-                let queuePlayer = AVQueuePlayer(playerItem: item)
+                let queuePlayer = AVQueuePlayer()
                 queuePlayer.isMuted = true
                 queuePlayer.volume = 0
-                queuePlayer.actionAtItemEnd = .none
-                let looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
 
                 addCenteredPlayerView(player: queuePlayer, videoURL: videoURL, to: contentView)
 
                 secondaryPlayers.append(queuePlayer)
-                secondaryLoopers.append(looper)
             }
 
             let dimView = NSView()
             dimView.wantsLayer = true
-            dimView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.36).cgColor
+            dimView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.08).cgColor
             dimView.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(dimView)
             NSLayoutConstraint.activate([
@@ -411,150 +478,232 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
                 dimView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
             ])
 
-            let stack = NSStackView()
-            stack.orientation = .vertical
-            stack.alignment = .centerX
-            stack.spacing = 22
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(stack)
-
-            let messageLabel = NSTextField(labelWithString: "休息一下，喝点水，保护眼睛。")
-            messageLabel.font = NSFont.systemFont(ofSize: 38, weight: .semibold)
-            messageLabel.textColor = .white
-            messageLabel.alignment = .center
-            messageLabel.maximumNumberOfLines = 2
-            messageLabel.lineBreakMode = .byWordWrapping
-
-            let progressLabel = NSTextField(labelWithString: "已确认 0/3")
-            progressLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .medium)
-            progressLabel.textColor = .white
-            progressLabel.alignment = .center
-            secondaryProgressLabels.append(progressLabel)
-
-            let hintLabel = NSTextField(labelWithString: "请在主屏幕完成确认")
-            hintLabel.font = NSFont.systemFont(ofSize: 18, weight: .regular)
-            hintLabel.textColor = NSColor.white.withAlphaComponent(0.9)
-            hintLabel.alignment = .center
-
-            stack.addArrangedSubview(messageLabel)
-            stack.addArrangedSubview(progressLabel)
-            stack.addArrangedSubview(hintLabel)
-
-            NSLayoutConstraint.activate([
-                stack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-                stack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-                stack.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 36),
-                stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -36)
-            ])
+            secondaryWebViews.append(addReminderWebView(to: contentView, role: "secondary"))
 
             secondaryWindows.append(secondaryWindow)
         }
+    }
+
+    private func addReminderWebView(to contentView: NSView, role: String) -> WKWebView {
+        let userContentController = WKUserContentController()
+        if role == "primary" {
+            userContentController.add(self, name: "drinkingProject")
+        }
+
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = userContentController
+
+        let reminderView = WKWebView(frame: .zero, configuration: configuration)
+        reminderView.navigationDelegate = self
+        reminderView.translatesAutoresizingMaskIntoConstraints = false
+        reminderView.wantsLayer = true
+        reminderView.layer?.backgroundColor = NSColor.clear.cgColor
+        reminderView.setValue(false, forKey: "drawsBackground")
+        contentView.addSubview(reminderView)
+
+        NSLayoutConstraint.activate([
+            reminderView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            reminderView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            reminderView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            reminderView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+
+        let indexURL = reminderWebDirectory.appendingPathComponent("index.html")
+        reminderView.loadFileURL(indexURL, allowingReadAccessTo: reminderWebDirectory)
+        return reminderView
     }
 
     private func addCenteredPlayerView(player: AVQueuePlayer, videoURL: URL, to contentView: NSView) {
         let playerView = AVPlayerView()
         playerView.player = player
         playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspect
+        playerView.videoGravity = .resizeAspectFill
         playerView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(playerView)
 
-        let displaySize = centeredVideoDisplaySize(for: videoURL, in: contentView.bounds.size)
         NSLayoutConstraint.activate([
-            playerView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            playerView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playerView.widthAnchor.constraint(equalToConstant: displaySize.width),
-            playerView.heightAnchor.constraint(equalToConstant: displaySize.height)
+            playerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            playerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            playerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            playerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
     }
 
-    private func centeredVideoDisplaySize(for videoURL: URL, in containerSize: CGSize) -> CGSize {
-        let naturalSize = naturalVideoSize(for: videoURL) ?? CGSize(width: 960, height: 540)
-        guard naturalSize.width > 0, naturalSize.height > 0 else {
-            return CGSize(width: min(960, containerSize.width * 0.9), height: min(540, containerSize.height * 0.8))
+    private func setPlaybackMode(_ mode: VideoPlaybackMode) {
+        playbackMode = mode
+        playbackMode.save()
+        setCurrentVideo(currentVideoURL, shouldPlay: player?.timeControlStatus == .playing)
+        updateWebReminderViews()
+    }
+
+    private func setCurrentVideo(_ videoURL: URL?, shouldPlay: Bool) {
+        removePrimaryEndObserver()
+        looper = nil
+        secondaryLoopers.removeAll()
+        currentVideoURL = videoURL
+
+        guard let videoURL else {
+            player?.replaceCurrentItem(with: nil)
+            secondaryPlayers.forEach { $0.replaceCurrentItem(with: nil) }
+            return
         }
 
-        let maxWidth = max(240, containerSize.width * 0.92)
-        let maxHeight = max(180, containerSize.height * 0.82)
-        let scale = min(1, maxWidth / naturalSize.width, maxHeight / naturalSize.height)
-        return CGSize(width: naturalSize.width * scale, height: naturalSize.height * scale)
+        if let player {
+            let item = AVPlayerItem(url: videoURL)
+            player.actionAtItemEnd = playbackMode == .loopSelected ? .none : .pause
+            player.replaceCurrentItem(with: item)
+
+            switch playbackMode {
+            case .advanceOnEnd:
+                observePrimaryItemEnd(item)
+            case .loopSelected:
+                looper = AVPlayerLooper(player: player, templateItem: item)
+            }
+        }
+
+        for secondaryPlayer in secondaryPlayers {
+            let item = AVPlayerItem(url: videoURL)
+            secondaryPlayer.actionAtItemEnd = playbackMode == .loopSelected ? .none : .pause
+            secondaryPlayer.replaceCurrentItem(with: item)
+            if playbackMode == .loopSelected {
+                secondaryLoopers.append(AVPlayerLooper(player: secondaryPlayer, templateItem: item))
+            }
+        }
+
+        if shouldPlay {
+            player?.play()
+            secondaryPlayers.forEach { $0.play() }
+        }
     }
 
-    private func naturalVideoSize(for videoURL: URL) -> CGSize? {
-        let asset = AVURLAsset(url: videoURL)
-        guard let track = asset.tracks(withMediaType: .video).first else { return nil }
-        let transformedSize = track.naturalSize.applying(track.preferredTransform)
-        let width = abs(transformedSize.width)
-        let height = abs(transformedSize.height)
-        guard width > 0, height > 0 else { return nil }
-        return CGSize(width: width, height: height)
+    private func observePrimaryItemEnd(_ item: AVPlayerItem) {
+        primaryEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.advanceToNextVideo()
+        }
     }
 
-    private func configureButton() {
-        confirmButton.target = self
-        confirmButton.action = #selector(confirmWater)
-        confirmButton.isEnabled = false
-        confirmButton.isHidden = true
-        confirmButton.bezelStyle = .rounded
-        confirmButton.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+    private func removePrimaryEndObserver() {
+        if let primaryEndObserver {
+            NotificationCenter.default.removeObserver(primaryEndObserver)
+            self.primaryEndObserver = nil
+        }
+    }
+
+    private func advanceToNextVideo() {
+        guard playbackMode == .advanceOnEnd else { return }
+        guard let nextVideoURL = VideoScanner.nextPlayableVideoURL() else { return }
+        setCurrentVideo(nextVideoURL, shouldPlay: true)
     }
 
     private func startLockCountdown() {
         remainingLockSeconds = 30
-        lockLabel.stringValue = "30 秒后可确认"
-        confirmButton.isHidden = true
-        confirmButton.isEnabled = false
+        confirmationCount = 0
+        lastConfirmationDate = nil
+        statusText = "30 秒后再确认"
+        hintText = "把杯子拿起来，慢慢喝完这一口。"
+        buttonText = "等待中"
+        isConfirmationVisible = false
+        isConfirmationEnabled = false
+        updateWebReminderViews()
 
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
             guard let self else { return }
             remainingLockSeconds -= 1
             if remainingLockSeconds > 0 {
-                lockLabel.stringValue = "\(remainingLockSeconds) 秒后可确认"
+                statusText = "\(remainingLockSeconds) 秒后再确认"
             } else {
                 timer.invalidate()
                 unlockTimer = nil
-                lockLabel.stringValue = "请点击 3 次，每次间隔至少 5 秒"
-                confirmButton.isHidden = false
-                confirmButton.isEnabled = true
+                statusText = "请点击 3 次，每次间隔至少 5 秒"
+                hintText = "每次确认之间保留 5 秒，确保不是随手点掉。"
+                buttonText = "已饮水"
+                isConfirmationVisible = true
+                isConfirmationEnabled = true
             }
+            updateWebReminderViews()
         }
         unlockTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    @objc private func confirmWater() {
+    private func confirmWater() {
+        guard isConfirmationVisible, isConfirmationEnabled else { return }
+
         let now = Date()
         if let lastConfirmationDate {
             let elapsed = now.timeIntervalSince(lastConfirmationDate)
             if elapsed < 5 {
                 let waitSeconds = Int(ceil(5 - elapsed))
-                lockLabel.stringValue = "请再等 \(waitSeconds) 秒"
+                statusText = "请再等 \(waitSeconds) 秒"
+                hintText = "留一点间隔，让喝水不是一次机械点击。"
+                updateWebReminderViews()
                 return
             }
         }
 
         confirmationCount += 1
         lastConfirmationDate = now
-        progressLabel.stringValue = "已确认 \(confirmationCount)/3"
-        secondaryProgressLabels.forEach { $0.stringValue = "已确认 \(confirmationCount)/3" }
+        updateWebReminderViews()
 
         if confirmationCount >= 3 {
-            progressLabel.stringValue = "已确认 3/3"
-            secondaryProgressLabels.forEach { $0.stringValue = "已确认 3/3" }
-            lockLabel.stringValue = "完成"
+            statusText = "完成"
+            hintText = "很好，回去继续。"
+            buttonText = "完成"
+            isConfirmationEnabled = false
+            updateWebReminderViews()
             forceCloseFromConfirmation()
             return
         }
 
-        confirmButton.isEnabled = false
-        lockLabel.stringValue = "请等待 5 秒后继续确认"
+        isConfirmationEnabled = false
+        statusText = "请等待 5 秒后继续确认"
+        hintText = "把杯子放下前，再喝一口。"
+        buttonText = "冷却中"
+        updateWebReminderViews()
         clickCooldownTimer?.invalidate()
         let timer = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
-            self?.confirmButton.isEnabled = true
-            self?.lockLabel.stringValue = "请继续确认"
+            self?.isConfirmationEnabled = true
+            self?.statusText = "请继续确认"
+            self?.hintText = "还差几次，慢一点也没关系。"
+            self?.buttonText = "已饮水"
+            self?.updateWebReminderViews()
         }
         clickCooldownTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func updateWebReminderViews() {
+        sendState(to: webView, role: "primary")
+        secondaryWebViews.forEach { sendState(to: $0, role: "secondary") }
+    }
+
+    private func sendState(to reminderView: WKWebView?, role: String) {
+        guard let reminderView else { return }
+        let payload: [String: Any] = [
+            "role": role,
+            "remainingSeconds": remainingLockSeconds,
+            "confirmationCount": confirmationCount,
+            "requiredConfirmations": 3,
+            "buttonVisible": isConfirmationVisible,
+            "buttonEnabled": isConfirmationEnabled,
+            "statusText": statusText,
+            "hintText": hintText,
+            "buttonText": buttonText,
+            "playbackMode": playbackMode.rawValue,
+            "hasPlayableVideo": hasPlayableVideo,
+            "videoMessage": "未找到可播放视频，请检查 视频/视频素材/"
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        reminderView.evaluateJavaScript("window.drinkingProjectState && window.drinkingProjectState(\(json));")
     }
 
     private func cleanup() {
@@ -562,13 +711,16 @@ private final class ReminderWindowController: NSWindowController, NSWindowDelega
         clickCooldownTimer?.invalidate()
         unlockTimer = nil
         clickCooldownTimer = nil
+        removePrimaryEndObserver()
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "drinkingProject")
+        webView = nil
         player?.pause()
         secondaryPlayers.forEach { $0.pause() }
         player = nil
         looper = nil
         secondaryPlayers.removeAll()
         secondaryLoopers.removeAll()
-        secondaryProgressLabels.removeAll()
+        secondaryWebViews.removeAll()
         secondaryWindows.forEach { $0.orderOut(nil) }
         secondaryWindows.removeAll()
     }
@@ -670,7 +822,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
     private func showReminder() {
         BackgroundMediaControl.pauseLikelyMediaSources()
         SystemAudio.setOutputVolumeToReminderLevel()
-        let reminder = ReminderWindowController(videoURL: VideoScanner.randomPlayableVideoURL())
+        let reminder = ReminderWindowController(videoURL: VideoScanner.nextPlayableVideoURL())
         activeReminder = reminder
         reminder.onClosed = { [weak self] in
             self?.activeReminder = nil
