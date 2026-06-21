@@ -17,7 +17,7 @@ APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 usage() {
-  echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--test]" >&2
+  echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--test|--self-test-persistence]" >&2
 }
 
 build_app() {
@@ -122,6 +122,11 @@ case "$MODE" in
     pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
     build_app
     open_app --resume-on-launch --test-on-launch
+    ;;
+  --self-test-persistence|self-test-persistence)
+    build_app
+    SELF_TEST_DIR="$(mktemp -d)"
+    "$APP_BINARY" --project-dir "$ROOT_DIR" --app-support-dir "$SELF_TEST_DIR" --self-test-persistence
     ;;
   *)
     usage

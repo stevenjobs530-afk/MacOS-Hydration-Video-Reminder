@@ -29,6 +29,7 @@ final class AppController: ObservableObject {
     )
 
     private(set) var shouldTestOnLaunch = false
+    private(set) var shouldRunPersistenceSelfTest = false
 
     private init() {
         paths = AppPaths(arguments: CommandLine.arguments)
@@ -42,6 +43,7 @@ final class AppController: ObservableObject {
     func applyLaunchArguments() {
         let arguments = Set(CommandLine.arguments.dropFirst())
         shouldTestOnLaunch = arguments.contains("--test-on-launch")
+        shouldRunPersistenceSelfTest = arguments.contains("--self-test-persistence")
         if arguments.contains("--resume-on-launch") {
             resumeToday()
         }

@@ -19,11 +19,16 @@ struct AppPaths {
         projectRoot = URL(fileURLWithPath: projectRootValue ?? fallbackRoot, isDirectory: true)
             .standardizedFileURL
 
-        let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first ?? FileManager.default.homeDirectoryForCurrentUser
-        appSupportDirectory = appSupportRoot
-            .appendingPathComponent("Drinking Project", isDirectory: true)
-            .standardizedFileURL
+        if let explicitSupportPath = Self.value(after: "--app-support-dir", in: arguments) {
+            appSupportDirectory = URL(fileURLWithPath: explicitSupportPath, isDirectory: true)
+                .standardizedFileURL
+        } else {
+            let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+                .first ?? FileManager.default.homeDirectoryForCurrentUser
+            appSupportDirectory = appSupportRoot
+                .appendingPathComponent("Drinking Project", isDirectory: true)
+                .standardizedFileURL
+        }
         try? FileManager.default.createDirectory(
             at: appSupportDirectory,
             withIntermediateDirectories: true

@@ -9,6 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         controller.applyLaunchArguments()
+        if controller.shouldRunPersistenceSelfTest {
+            let passed = PersistenceSelfTest.run(paths: controller.paths)
+            NSApp.terminate(passed ? nil : self)
+            Darwin.exit(passed ? 0 : 1)
+        }
         configureStatusMenu()
         controller.startScheduler()
 
