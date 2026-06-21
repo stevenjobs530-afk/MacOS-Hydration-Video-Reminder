@@ -2,4 +2,4 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-exec "$PROJECT_DIR/测试 Drinking Project.command"
+exec /bin/zsh "$PROJECT_DIR/测试 Drinking Project.command"

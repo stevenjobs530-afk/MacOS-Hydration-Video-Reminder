@@ -9,6 +9,6 @@ if pgrep -x "DrinkingProject" >/dev/null 2>&1; then
 fi
 
 cd "$PROJECT_DIR"
-"$PROJECT_DIR/script/build_and_run.sh" run
+/bin/bash "$PROJECT_DIR/script/build_and_run.sh" run
 
 osascript -e 'display notification "已开启喝水提醒。" with title "Drinking Project"' >/dev/null 2>&1 || true
