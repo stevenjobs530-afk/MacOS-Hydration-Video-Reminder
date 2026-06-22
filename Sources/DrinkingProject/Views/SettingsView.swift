@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject private var store: SettingsStore
+    @State private var launchAgentStatus = LaunchAgentService.status()
+    @State private var launchAgentMessage = ""
+    @State private var isUpdatingLaunchAgent = false
 
     init(controller: AppController) {
         self.controller = controller
@@ -11,46 +14,83 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Reminder") {
-                Toggle("Reminders enabled", isOn: $store.settings.remindersEnabled)
-                Toggle("Launch at login", isOn: $store.settings.launchAtLoginEnabled)
-                Text("Launch at login is recorded for the MVP; the install script still owns the actual LaunchAgent setup.")
+            Section("提醒") {
+                Toggle("开启提醒", isOn: $store.settings.remindersEnabled)
+                Toggle(
+                    "开机自动运行",
+                    isOn: Binding(
+                        get: { launchAgentStatus.isInstalled },
+                        set: { setLaunchAtLogin($0) }
+                    )
+                )
+                .disabled(isUpdatingLaunchAgent)
+
+                Text(launchAgentStatus.summary)
+                    .font(.caption)
+                    .foregroundStyle(launchAgentStatus.isInstalled ? Color.secondary : Color.orange)
+                Text("LaunchAgent: \(launchAgentStatus.plistPath)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !launchAgentMessage.isEmpty {
+                    Text(launchAgentMessage)
+                        .font(.caption)
+                        .foregroundStyle(launchAgentMessage.contains("失败") ? Color.red : Color.secondary)
+                }
+                Button("刷新开机启动状态") {
+                    refreshLaunchAgentStatus()
+                }
             }
 
-            Section("Playback") {
-                Picker("Playback mode", selection: $store.settings.playbackMode) {
+            Section("播放") {
+                Picker("播放方式", selection: $store.settings.playbackMode) {
                     ForEach(VideoPlaybackMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 Slider(value: $store.settings.reminderVolume, in: 0...100, step: 1) {
-                    Text("Volume")
+                    Text("音量")
                 }
-                Text("Reminder volume: \(Int(store.settings.reminderVolume))%")
+                Text("提醒音量：\(Int(store.settings.reminderVolume))%")
                     .foregroundStyle(.secondary)
             }
 
-            Section("Today") {
-                Text(store.isPausedToday ? "Today is paused" : "Today is running")
+            Section("今天") {
+                Text(store.isPausedToday ? "今日已暂停" : "今日提醒运行中")
                 HStack {
-                    Button("Pause Today") {
+                    Button("今日暂停") {
                         controller.pauseToday()
                     }
-                    Button("Resume Today") {
+                    Button("恢复今日提醒") {
                         controller.resumeToday()
                     }
                 }
             }
 
             Section {
-                Button("Restore Defaults") {
+                Button("恢复默认设置") {
                     store.restoreDefaults()
+                    refreshLaunchAgentStatus()
                 }
             }
         }
         .padding(24)
-        .navigationTitle("Settings")
+        .navigationTitle("设置")
+        .onAppear {
+            refreshLaunchAgentStatus()
+        }
+    }
+
+    private func refreshLaunchAgentStatus() {
+        launchAgentStatus = LaunchAgentService.status()
+        store.settings.launchAtLoginEnabled = launchAgentStatus.isInstalled
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        isUpdatingLaunchAgent = true
+        let result = LaunchAgentService.setEnabled(enabled, projectRoot: controller.paths.projectRoot)
+        launchAgentStatus = result.status
+        launchAgentMessage = result.message
+        store.settings.launchAtLoginEnabled = result.status.isInstalled
+        isUpdatingLaunchAgent = false
     }
 }

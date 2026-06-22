@@ -17,7 +17,7 @@ APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 usage() {
-  echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--test|--self-test-persistence]" >&2
+  echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--test|--self-test-persistence|--media-privacy-check|--qa]" >&2
 }
 
 build_app() {
@@ -84,6 +84,51 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE" --args --project-dir "$ROOT_DIR" "$@"
 }
 
+check_js_syntax() {
+  if command -v node >/dev/null 2>&1; then
+    if [[ -f "$ROOT_DIR/Sources/DrinkingProject/WebResources/ReminderWeb/app.js" ]]; then
+      node --check "$ROOT_DIR/Sources/DrinkingProject/WebResources/ReminderWeb/app.js"
+    fi
+    if [[ -f "$ROOT_DIR/Test /ReminderWeb/app.js" ]]; then
+      node --check "$ROOT_DIR/Test /ReminderWeb/app.js"
+    fi
+    echo "WebResources JS syntax check passed"
+  else
+    echo "node is not available; skipped WebResources JS syntax check" >&2
+  fi
+}
+
+check_media_privacy() {
+  if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Not a git checkout; skipped media privacy check" >&2
+    return 0
+  fi
+
+  MEDIA_PATTERN='\.((mp4|mov|m4v|avi|mkv|webm|mp3|wav|aac|flac|jpg|jpeg|png|gif|heic|webp))$'
+  TRACKED_MEDIA="$(git -C "$ROOT_DIR" ls-files | grep -Ei "$MEDIA_PATTERN" || true)"
+  STAGED_MEDIA="$(git -C "$ROOT_DIR" diff --cached --name-only --diff-filter=ACMRT | grep -Ei "$MEDIA_PATTERN" || true)"
+
+  if [[ -n "$TRACKED_MEDIA$STAGED_MEDIA" ]]; then
+    echo "Media privacy check failed. Do not commit private video, image, or audio files." >&2
+    if [[ -n "$TRACKED_MEDIA" ]]; then
+      echo "Tracked media:" >&2
+      echo "$TRACKED_MEDIA" >&2
+    fi
+    if [[ -n "$STAGED_MEDIA" ]]; then
+      echo "Staged media:" >&2
+      echo "$STAGED_MEDIA" >&2
+    fi
+    return 1
+  fi
+
+  echo "Media privacy check passed"
+}
+
+run_persistence_self_test() {
+  SELF_TEST_DIR="$(mktemp -d)"
+  "$APP_BINARY" --project-dir "$ROOT_DIR" --app-support-dir "$SELF_TEST_DIR" --self-test-persistence
+}
+
 case "$MODE" in
   run|--run)
     pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
@@ -125,8 +170,17 @@ case "$MODE" in
     ;;
   --self-test-persistence|self-test-persistence)
     build_app
-    SELF_TEST_DIR="$(mktemp -d)"
-    "$APP_BINARY" --project-dir "$ROOT_DIR" --app-support-dir "$SELF_TEST_DIR" --self-test-persistence
+    run_persistence_self_test
+    ;;
+  --media-privacy-check|media-privacy-check)
+    check_media_privacy
+    ;;
+  --qa|qa)
+    check_js_syntax
+    check_media_privacy
+    build_app
+    plutil -lint "$INFO_PLIST"
+    run_persistence_self_test
     ;;
   *)
     usage

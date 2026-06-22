@@ -58,17 +58,56 @@ enum PersistenceSelfTest {
         let historyPersisted = reloadedHistoryStore.history.todayReminderCount == 1
             && reloadedHistoryStore.history.lastReminderAt != nil
             && reloadedHistoryStore.history.lastConfirmationCompletedAt != nil
+        let corruptJSONRecovered = verifyCorruptJSONBackup(paths: paths)
+        let schedulerRulesPassed = verifySchedulerRuleEdges()
 
-        let passed = rulePersisted && videoPersisted && settingsPersisted && historyPersisted
+        let passed = rulePersisted
+            && videoPersisted
+            && settingsPersisted
+            && historyPersisted
+            && corruptJSONRecovered
+            && schedulerRulesPassed
         let lines = [
             "[DrinkingProject] self_test_persistence support_dir=\(paths.appSupportDirectory.path)",
             "[DrinkingProject] self_test_persistence rule=\(rulePersisted)",
             "[DrinkingProject] self_test_persistence video=\(videoPersisted)",
             "[DrinkingProject] self_test_persistence settings=\(settingsPersisted)",
             "[DrinkingProject] self_test_persistence history=\(historyPersisted)",
+            "[DrinkingProject] self_test_persistence corrupt_json_backup=\(corruptJSONRecovered)",
+            "[DrinkingProject] self_test_persistence scheduler_edges=\(schedulerRulesPassed)",
             "[DrinkingProject] self_test_persistence result=\(passed ? "pass" : "fail")"
         ]
         FileHandle.standardOutput.write(Data((lines.joined(separator: "\n") + "\n").utf8))
         return passed
+    }
+
+    private static func verifyCorruptJSONBackup(paths: AppPaths) -> Bool {
+        let url = paths.appSupportDirectory.appendingPathComponent("corrupt-self-test.json")
+        try? Data("{broken json".utf8).write(to: url, options: [.atomic])
+        let recovered = JSONFileStore.load([String].self, from: url, fallback: ["fallback"])
+        let backupPrefix = "\(url.lastPathComponent).corrupt-"
+        let backups = (try? FileManager.default.contentsOfDirectory(
+            at: paths.appSupportDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return recovered == ["fallback"]
+            && backups.contains { $0.lastPathComponent.hasPrefix(backupPrefix) }
+    }
+
+    private static func verifySchedulerRuleEdges() -> Bool {
+        let defaultRule = ReminderRule.defaultRule
+        var overnightRule = ReminderRule.defaultRule
+        overnightRule.startTime = ClockTime(hour: 22, minute: 0)
+        overnightRule.endTime = ClockTime(hour: 2, minute: 0)
+        overnightRule.intervalMinutes = 30
+
+        return defaultRule.matches(minuteOfDay: 8 * 60)
+            && defaultRule.matches(minuteOfDay: 22 * 60)
+            && !defaultRule.matches(minuteOfDay: 22 * 60 + 30)
+            && overnightRule.matches(minuteOfDay: 22 * 60)
+            && overnightRule.matches(minuteOfDay: 23 * 60 + 30)
+            && overnightRule.matches(minuteOfDay: 1 * 60 + 30)
+            && overnightRule.matches(minuteOfDay: 2 * 60)
+            && !overnightRule.matches(minuteOfDay: 3 * 60)
     }
 }

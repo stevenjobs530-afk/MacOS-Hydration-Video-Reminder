@@ -7,6 +7,7 @@ final class ReminderScheduler {
     private let fire: (ReminderRule) -> Void
     private var timer: Timer?
     private var firedSlotKeys = Set<String>()
+    private var firedSlotDayPrefix: String?
 
     init(
         ruleProvider: @escaping () -> [ReminderRule],
@@ -39,11 +40,13 @@ final class ReminderScheduler {
         let rules = ruleProvider().filter(\.enabled)
         guard !rules.isEmpty else { return nil }
         let calendar = Calendar.current
+        let start = calendar.dateInterval(of: .minute, for: date)?.start ?? date
         for offset in 0..<(60 * 24 * 2) {
-            guard let candidate = calendar.date(byAdding: .minute, value: offset, to: date) else {
+            guard let candidate = calendar.date(byAdding: .minute, value: offset, to: start) else {
                 continue
             }
-            if rules.contains(where: { $0.matches(date: candidate, calendar: calendar) }) {
+            let key = slotKey(for: candidate, calendar: calendar)
+            if !firedSlotKeys.contains(key), rules.contains(where: { $0.matches(date: candidate, calendar: calendar) }) {
                 return candidate
             }
         }
@@ -54,17 +57,30 @@ final class ReminderScheduler {
         guard canFire() else { return }
         let now = Date()
         let calendar = Calendar.current
-        for rule in ruleProvider() where rule.enabled && rule.matches(date: now, calendar: calendar) {
-            let key = slotKey(for: now, rule: rule, calendar: calendar)
-            guard !firedSlotKeys.contains(key) else { continue }
+        compactOldFiredSlotKeys(now: now, calendar: calendar)
+        let key = slotKey(for: now, calendar: calendar)
+        guard !firedSlotKeys.contains(key) else { return }
+
+        if let rule = ruleProvider().first(where: { $0.enabled && $0.matches(date: now, calendar: calendar) }) {
             firedSlotKeys.insert(key)
             fire(rule)
-            break
         }
     }
 
-    private func slotKey(for date: Date, rule: ReminderRule, calendar: Calendar) -> String {
+    private func compactOldFiredSlotKeys(now: Date, calendar: Calendar) {
+        let prefix = dayPrefix(for: now, calendar: calendar)
+        guard firedSlotDayPrefix != prefix else { return }
+        firedSlotKeys = firedSlotKeys.filter { $0.hasPrefix(prefix) }
+        firedSlotDayPrefix = prefix
+    }
+
+    private func slotKey(for date: Date, calendar: Calendar) -> String {
         let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        return "\(rule.id.uuidString)-\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)-\(components.hour ?? 0)-\(components.minute ?? 0)"
+        return "\(dayPrefix(for: date, calendar: calendar))\(components.hour ?? 0)-\(components.minute ?? 0)"
+    }
+
+    private func dayPrefix(for date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)-"
     }
 }

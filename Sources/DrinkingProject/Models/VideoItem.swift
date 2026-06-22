@@ -5,6 +5,15 @@ enum VideoItemKind: String, Codable, CaseIterable, Identifiable {
     case folder
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .file:
+            return "文件"
+        case .folder:
+            return "文件夹"
+        }
+    }
 }
 
 struct VideoItem: Identifiable, Codable, Hashable {

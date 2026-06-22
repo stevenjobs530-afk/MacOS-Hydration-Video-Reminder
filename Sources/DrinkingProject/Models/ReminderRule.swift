@@ -26,7 +26,11 @@ struct ReminderRule: Identifiable, Codable, Hashable {
     func matches(date: Date, calendar: Calendar = .current) -> Bool {
         let components = calendar.dateComponents([.hour, .minute], from: date)
         guard let hour = components.hour, let minute = components.minute else { return false }
-        let candidate = hour * 60 + minute
+        return matches(minuteOfDay: hour * 60 + minute)
+    }
+
+    func matches(minuteOfDay: Int) -> Bool {
+        let candidate = (minuteOfDay % (24 * 60) + 24 * 60) % (24 * 60)
         let start = startTime.minutesSinceMidnight
         let end = endTime.minutesSinceMidnight
         let interval = max(1, intervalMinutes)
@@ -41,5 +45,20 @@ struct ReminderRule: Identifiable, Codable, Hashable {
 
         let offset = (candidate - start + 24 * 60) % (24 * 60)
         return offset % interval == 0
+    }
+
+    var normalized: ReminderRule {
+        var copy = self
+        copy.title = copy.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if copy.title.isEmpty {
+            copy.title = "未命名提醒规则"
+        }
+        copy.startTime = copy.startTime.normalized
+        copy.endTime = copy.endTime.normalized
+        copy.intervalMinutes = min(max(copy.intervalMinutes, 1), 240)
+        copy.lockSeconds = min(max(copy.lockSeconds, 0), 300)
+        copy.requiredConfirmations = min(max(copy.requiredConfirmations, 1), 10)
+        copy.confirmationCooldownSeconds = min(max(copy.confirmationCooldownSeconds, 0), 60)
+        return copy
     }
 }

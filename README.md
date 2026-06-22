@@ -7,11 +7,13 @@ This public version does not include private video or image assets. Add your own
 ## 功能
 
 - 菜单栏常驻入口，标题为“水”
-- 基础 SwiftUI 管理窗口：Overview、Reminder Rules、Video Library、Settings
+- 基础 SwiftUI 管理窗口：总览、提醒规则、视频库、设置
 - 提醒规则本地 CRUD：新增、查看、修改、删除、启用或停用规则
 - 视频引用本地 CRUD：添加本地视频或文件夹引用、扫描、启用或停用、移除引用但不删除原文件
+- 视频库会显示候选数、可播放数、不可播放文件名，以及缺失或外接硬盘未连接的引用
 - 设置本地管理：播放模式、提醒音量、今日暂停、恢复默认设置
 - 使用 Application Support 下的 JSON 文件保存本地规则、视频引用、设置和提醒状态
+- 如果本地 JSON 损坏，App 会先备份为 `.corrupt-时间戳` 文件，再恢复默认值，避免启动崩溃
 - 自动扫描 `视频/视频素材/` 和兼容扫描 `视频/` 第一层中的 `.mp4`、`.mov`、`.m4v`
 - 自动忽略 macOS 的 `._` 元数据文件
 - 每次提醒都会重新扫描本地视频，并随机选择一个可播放视频
@@ -27,7 +29,7 @@ This public version does not include private video or image assets. Add your own
 - 必须点击“已饮水”3 次才能关闭
 - 每次点击之间必须间隔至少 5 秒
 - 支持“今日暂停”和“重新开启今日提醒”
-- 可设置开机自动运行
+- 设置页可以真实安装、加载或移除用户级 LaunchAgent，用于开机自动运行
 
 macOS 强制退出仍然保留为最后后门。
 
@@ -47,8 +49,7 @@ macOS 强制退出仍然保留为最后后门。
 
 ```zsh
 cd "/path/to/Drinking Project"
-chmod +x script/build_and_run.sh scripts/*.sh
-./scripts/run.sh
+bash ./script/build_and_run.sh
 ```
 
 脚本会编译 Swift/AppKit/SwiftUI 源码，生成：
@@ -62,7 +63,7 @@ dist/Drinking Project.app
 底层构建入口是：
 
 ```zsh
-./script/build_and_run.sh
+bash ./script/build_and_run.sh
 ```
 
 ## 如何关闭
@@ -77,25 +78,25 @@ dist/Drinking Project.app
 
 ## 如何设置开机启动
 
-运行：
-
-```zsh
-cd "/path/to/Drinking Project"
-chmod +x scripts/*.sh
-./scripts/install_launch_agent.sh
-```
-
-这会构建 release 版本，并安装用户级 LaunchAgent：
+打开管理窗口，进入“设置”，开启“开机自动运行”。设置页会显示真实的 LaunchAgent 状态和 plist 路径：
 
 ```text
 ~/Library/LaunchAgents/com.local.drinkingproject.plist
+```
+
+如果你更喜欢脚本，也可以运行：
+
+```zsh
+cd "/path/to/Drinking Project"
+bash ./script/build_and_run.sh --build-only
+zsh ./scripts/install_launch_agent.sh
 ```
 
 如果以后想取消开机启动：
 
 ```zsh
 cd "/path/to/Drinking Project"
-./scripts/uninstall_launch_agent.sh
+zsh ./scripts/uninstall_launch_agent.sh
 ```
 
 ## 如何添加或替换视频
@@ -112,7 +113,9 @@ cd "/path/to/Drinking Project"
 mp4, mov, m4v
 ```
 
-程序每次提醒前都会优先扫描 `视频/视频素材/`，并兼容扫描 `视频/` 第一层。管理窗口里的 Video Library 也可以添加额外的本地视频或文件夹引用。移除引用只会从 App 的本地列表删除，不会删除用户原始媒体文件。
+程序每次提醒前都会优先扫描 `视频/视频素材/`，并兼容扫描 `视频/` 第一层。管理窗口里的“视频库”也可以添加额外的本地视频或文件夹引用。移除引用只会从 App 的本地列表删除，不会删除用户原始媒体文件。
+
+如果外接硬盘断开，或引用路径已经不存在，视频库会把该引用显示为不可用。重新连接硬盘后，点击“扫描视频”或对应文件夹的“重新扫描”即可刷新。
 
 为了保护隐私，仓库里的 `.gitignore` 会默认排除 `视频/` 下的真实视频、图片和音频文件，只保留占位说明。
 
@@ -202,3 +205,40 @@ history.json
 ```
 
 22:30 不会提醒。
+
+如果多个启用规则在同一分钟同时匹配，只会触发列表中靠前的第一个规则。跨夜规则也支持，例如 22:00 到第二天 02:00。
+
+## 本地 QA
+
+开发或提交 PR 前可以运行：
+
+```zsh
+cd "/path/to/Drinking Project"
+bash ./script/build_and_run.sh --qa
+```
+
+这个命令会检查：
+
+- `Sources/DrinkingProject/WebResources/ReminderWeb/app.js` 语法
+- `Test /ReminderWeb/app.js` 语法
+- 是否有真实视频、图片或音频文件被 Git 跟踪或暂存
+- macOS `.app` 构建
+- `Info.plist` 格式
+- JSON 持久化、坏 JSON 备份、默认提醒规则和跨夜规则边界
+
+也可以单独运行：
+
+```zsh
+bash ./script/build_and_run.sh --build-only
+bash ./script/build_and_run.sh --verify
+bash ./script/build_and_run.sh --self-test-persistence
+bash ./script/build_and_run.sh --media-privacy-check
+```
+
+## 常见恢复方法
+
+- 找不到视频：先确认 `视频/视频素材/` 里有 `mp4`、`mov` 或 `m4v`，再点“视频库”里的“扫描视频”。
+- 外接硬盘视频不可用：重新连接硬盘后再扫描；路径如果仍显示不可用，删除旧引用后重新添加文件夹。
+- 提醒窗口卡住：按 `Command + Q` 退出，这是保留的紧急出口。
+- 本地设置异常：检查 `~/Library/Application Support/Drinking Project/`，损坏 JSON 会保留 `.corrupt-时间戳` 备份。
+- 开机启动异常：在“设置”里刷新开机启动状态，或删除 `~/Library/LaunchAgents/com.local.drinkingproject.plist` 后重新开启。
