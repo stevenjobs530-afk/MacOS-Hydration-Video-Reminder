@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -9,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         controller.applyLaunchArguments()
+        if !controller.shouldRunPersistenceSelfTest, anotherInstanceIsRunning() {
+            Darwin.exit(0)
+        }
         if controller.shouldRunPersistenceSelfTest {
             let passed = PersistenceSelfTest.run(paths: controller.paths)
             NSApp.terminate(passed ? nil : self)
@@ -89,5 +93,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    private func anotherInstanceIsRunning() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", "DrinkingProject"]
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .contains { $0 != currentPID }
     }
 }

@@ -16,7 +16,7 @@ struct ContentView: View {
             case .overview:
                 OverviewView(controller: controller)
             case .rules:
-                ReminderRulesView(store: controller.reminderStore)
+                ReminderRulesView(controller: controller)
             case .videos:
                 VideoLibraryView(
                     store: controller.videoLibraryStore,
@@ -39,10 +39,10 @@ private enum AppSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .overview: return "Overview"
-        case .rules: return "Reminder Rules"
-        case .videos: return "Video Library"
-        case .settings: return "Settings"
+        case .overview: return "总览"
+        case .rules: return "提醒规则"
+        case .videos: return "视频库"
+        case .settings: return "设置"
         }
     }
 

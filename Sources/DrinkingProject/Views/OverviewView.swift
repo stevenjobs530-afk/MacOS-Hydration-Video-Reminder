@@ -13,32 +13,32 @@ struct OverviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Overview")
+            Text("总览")
                 .font(.largeTitle.weight(.semibold))
 
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 12) {
                 GridRow {
-                    Text("Status")
+                    Text("当前状态")
                         .foregroundStyle(.secondary)
                     Text(controller.currentStatusText)
                 }
                 GridRow {
-                    Text("Next reminder")
+                    Text("下次提醒")
                         .foregroundStyle(.secondary)
                     Text(controller.nextReminderText.replacingOccurrences(of: "下次提醒：", with: ""))
                 }
                 GridRow {
-                    Text("Playable videos")
+                    Text("可播放视频")
                         .foregroundStyle(.secondary)
                     Text("\(scanner.lastScanResult.playableVideos.count)")
                 }
                 GridRow {
-                    Text("Today reminders")
+                    Text("今日提醒次数")
                         .foregroundStyle(.secondary)
                     Text("\(historyStore.history.todayReminderCount)")
                 }
                 GridRow {
-                    Text("Last completed")
+                    Text("上次完成")
                         .foregroundStyle(.secondary)
                     Text(dateText(historyStore.history.lastConfirmationCompletedAt))
                 }
@@ -46,21 +46,27 @@ struct OverviewView: View {
             .font(.system(size: 14))
 
             HStack {
-                Button("Test Reminder") {
+                Button("测试提醒") {
                     controller.showTestReminder()
                 }
-                Button("Scan Videos") {
+                Button("扫描视频") {
                     controller.scanVideos()
                 }
-                Button("Pause Today") {
+                Button("今日暂停") {
                     controller.pauseToday()
                 }
-                Button("Resume Today") {
+                Button("恢复今日提醒") {
                     controller.resumeToday()
                 }
             }
 
-            Text("Local videos stay on this Mac. The GitHub project keeps only placeholders and folder instructions.")
+            if scanner.lastScanResult.playableVideos.isEmpty {
+                Text("未找到可播放视频。请检查 `视频/视频素材/` 或视频库里的外接硬盘引用。")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+            }
+
+            Text("本地视频只留在这台 Mac；GitHub 仓库只保留占位文件和目录说明。")
                 .foregroundStyle(.secondary)
                 .font(.callout)
 
@@ -73,7 +79,7 @@ struct OverviewView: View {
     }
 
     private func dateText(_ date: Date?) -> String {
-        guard let date else { return "None yet" }
+        guard let date else { return "暂无" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
