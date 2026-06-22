@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Drinking Project water drop app icon</title>
+  <desc id="desc">An original blue water droplet icon on a soft rounded background.</desc>
+  <defs>
+    <linearGradient id="background" x1="164" y1="112" x2="860" y2="912" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#d8f1ff"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="334" y1="176" x2="698" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#72e5ff"/>
+      <stop offset="0.44" stop-color="#16a8ee"/>
+      <stop offset="1" stop-color="#056ac4"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0" cy="0" r="1" gradientTransform="translate(435 348) rotate(58) scale(260 132)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.88"/>
+      <stop offset="0.58" stop-color="#ffffff" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="220" y="128" width="584" height="760" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="28" flood-color="#075895" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect x="72" y="72" width="880" height="880" rx="202" fill="url(#background)"/>
+  <path d="M510 176c-34 70-88 148-138 220-67 96-128 184-128 292 0 158 118 262 266 262s266-104 266-262c0-108-61-196-128-292-50-72-104-150-138-220z" fill="#c8edff" opacity="0.52"/>
+  <path filter="url(#shadow)" d="M512 142c-35 80-94 164-148 241-71 101-137 195-137 312 0 176 130 293 285 293s285-117 285-293c0-117-66-211-137-312-54-77-113-161-148-241z" fill="url(#drop)"/>
+  <path d="M512 142c-35 80-94 164-148 241-71 101-137 195-137 312 0 176 130 293 285 293s285-117 285-293c0-117-66-211-137-312-54-77-113-161-148-241z" fill="url(#shine)"/>
+  <path d="M406 398c-65 90-106 167-106 268 0 132 93 220 212 220" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" opacity="0.35"/>
+  <ellipse cx="425" cy="360" rx="66" ry="108" transform="rotate(24 425 360)" fill="#ffffff" opacity="0.42"/>
+</svg>

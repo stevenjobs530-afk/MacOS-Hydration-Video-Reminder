@@ -7,6 +7,7 @@ This public version does not include private video or image assets. Add your own
 ## 功能
 
 - 菜单栏常驻入口，标题为“水”
+- 原创蓝色水滴 App 图标，用于 Finder、Dock 和 Launchpad 中的 `.app` 展示
 - 基础 SwiftUI 管理窗口：总览、提醒规则、视频库、设置
 - 总览会显示今日提醒次数、今日完成次数、完成率、最近完成时间和可播放视频数
 - 提醒规则本地 CRUD：新增、查看、修改、删除、启用或停用规则
