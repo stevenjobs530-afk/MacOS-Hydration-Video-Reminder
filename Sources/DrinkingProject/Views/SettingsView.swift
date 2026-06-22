@@ -48,9 +48,9 @@ struct SettingsView: View {
                     }
                 }
                 Slider(value: $store.settings.reminderVolume, in: 0...100, step: 1) {
-                    Text("音量")
+                    Text("提示音音量")
                 }
-                Text("提醒音量：\(Int(store.settings.reminderVolume))%")
+                Text("提示音音量：\(Int(store.settings.reminderVolume))%")
                     .foregroundStyle(.secondary)
             }
 

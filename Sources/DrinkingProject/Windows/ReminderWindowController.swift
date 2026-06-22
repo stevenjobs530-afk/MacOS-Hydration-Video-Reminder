@@ -138,8 +138,8 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
 
         if let videoURL {
             let queuePlayer = AVQueuePlayer()
-            queuePlayer.isMuted = false
-            queuePlayer.volume = 1.0
+            queuePlayer.isMuted = true
+            queuePlayer.volume = 0
             player = queuePlayer
             addCenteredPlayerView(player: queuePlayer, videoURL: videoURL, to: contentView)
         }

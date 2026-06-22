@@ -16,6 +16,7 @@ final class AppController: ObservableObject {
 
     @Published private(set) var activeReminder: ReminderWindowController?
     private var managementWindow: NSWindow?
+    private var reminderSound: NSSound?
     private lazy var scheduler = ReminderScheduler(
         ruleProvider: { [weak self] in
             self?.reminderStore.rules ?? []
@@ -166,7 +167,7 @@ final class AppController: ObservableObject {
         let logLine = "[DrinkingProject] reminder_presenting manual=\(isManual) playground=\(configuration.isPlaygroundMode) rule_id=\(rule.id.uuidString)\n"
         FileHandle.standardOutput.write(Data(logLine.utf8))
         BackgroundMediaControl.pauseLikelyMediaSources()
-        SystemAudio.setOutputVolume(to: Int(settingsStore.settings.reminderVolume))
+        playReminderSound()
 
         let reminder = ReminderWindowController(
             videoURL: videoScanner.nextPlayableVideoURL(),
@@ -194,5 +195,23 @@ final class AppController: ObservableObject {
             playgroundModeEnabled: settingsStore.settings.playgroundModeEnabled,
             friendlyMessage: friendlyMessages.randomElement() ?? "先喝一口水。"
         )
+    }
+
+    private func playReminderSound() {
+        let volume = Float(max(0.0, min(100.0, settingsStore.settings.reminderVolume)) / 100.0)
+        guard volume > 0 else { return }
+
+        for soundName in ["Ping", "Glass", "Tink"] {
+            guard let sound = NSSound(named: NSSound.Name(soundName)) else { continue }
+            reminderSound?.stop()
+            sound.volume = volume
+            reminderSound = sound
+            if !sound.play() {
+                NSSound.beep()
+            }
+            return
+        }
+
+        NSSound.beep()
     }
 }
