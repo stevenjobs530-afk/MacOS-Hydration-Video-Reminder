@@ -14,13 +14,14 @@ struct AppPaths {
     }
 
     init(arguments: [String]) {
-        let projectRootValue = Self.value(after: "--project-dir", in: arguments)
-        let fallbackRoot = FileManager.default.currentDirectoryPath
-        projectRoot = URL(fileURLWithPath: projectRootValue ?? fallbackRoot, isDirectory: true)
-            .standardizedFileURL
+        projectRoot = Self.resolveProjectRoot(arguments: arguments)
 
         if let explicitSupportPath = Self.value(after: "--app-support-dir", in: arguments) {
             appSupportDirectory = URL(fileURLWithPath: explicitSupportPath, isDirectory: true)
+                .standardizedFileURL
+        } else if arguments.contains("--self-test-persistence") {
+            appSupportDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("DrinkingProjectSelfTest-\(UUID().uuidString)", isDirectory: true)
                 .standardizedFileURL
         } else {
             let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
@@ -39,6 +40,56 @@ struct AppPaths {
                 .standardizedFileURL
         } else {
             webResourceDirectory = Self.resolveWebResourceDirectory(projectRoot: projectRoot)
+        }
+    }
+
+    private static func resolveProjectRoot(arguments: [String]) -> URL {
+        if let explicitRoot = value(after: "--project-dir", in: arguments) {
+            return URL(fileURLWithPath: explicitRoot, isDirectory: true).standardizedFileURL
+        }
+
+        let currentDirectory = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        ).standardizedFileURL
+        let bundleContainer = Bundle.main.bundleURL
+            .deletingLastPathComponent()
+            .standardizedFileURL
+
+        let candidates = [
+            currentDirectory,
+            bundleContainer,
+            bundleContainer.deletingLastPathComponent(),
+            bundleContainer.deletingLastPathComponent().deletingLastPathComponent()
+        ]
+
+        for candidate in candidates {
+            if let root = nearestProjectRoot(from: candidate) {
+                return root
+            }
+        }
+        return currentDirectory
+    }
+
+    private static func nearestProjectRoot(from startURL: URL) -> URL? {
+        var current = startURL.standardizedFileURL
+        let fileManager = FileManager.default
+
+        while true {
+            let materialDirectory = current
+                .appendingPathComponent("视频", isDirectory: true)
+                .appendingPathComponent("视频素材", isDirectory: true)
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: materialDirectory.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return current
+            }
+
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path {
+                return nil
+            }
+            current = parent
         }
     }
 

@@ -15,6 +15,8 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+APP_ICON_SOURCE="$ROOT_DIR/Sources/DrinkingProject/Resources/AppIcon.icns"
+APP_ICON_NAME="AppIcon.icns"
 
 usage() {
   echo "usage: $0 [run|--build-only|--debug|--logs|--telemetry|--verify|--test|--self-test-persistence|--media-privacy-check|--qa]" >&2
@@ -46,6 +48,10 @@ build_app() {
     cp -R "$ROOT_DIR/Sources/DrinkingProject/WebResources" "$APP_RESOURCES/WebResources"
   fi
 
+  if [[ -f "$APP_ICON_SOURCE" ]]; then
+    cp "$APP_ICON_SOURCE" "$APP_RESOURCES/$APP_ICON_NAME"
+  fi
+
   cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,6 +65,8 @@ build_app() {
   <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleDisplayName</key>
   <string>$APP_DISPLAY_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>$APP_ICON_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleVersion</key>
@@ -104,9 +112,32 @@ check_media_privacy() {
     return 0
   fi
 
-  MEDIA_PATTERN='\.((mp4|mov|m4v|avi|mkv|webm|mp3|wav|aac|flac|jpg|jpeg|png|gif|heic|webp))$'
-  TRACKED_MEDIA="$(git -C "$ROOT_DIR" ls-files | grep -Ei "$MEDIA_PATTERN" || true)"
-  STAGED_MEDIA="$(git -C "$ROOT_DIR" diff --cached --name-only --diff-filter=ACMRT | grep -Ei "$MEDIA_PATTERN" || true)"
+  MEDIA_PATTERN='\.((mp4|mov|m4v|avi|mkv|webm|mp3|wav|aac|flac|jpg|jpeg|png|gif|heic|webp|icns|svg))$'
+
+  is_allowed_app_icon_resource() {
+    case "$1" in
+      Sources/DrinkingProject/Resources/AppIcon.icns|Sources/DrinkingProject/Resources/AppIcon.svg)
+        return 0
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
+
+  filter_private_media() {
+    local path
+    while IFS= read -r path; do
+      [[ -z "$path" ]] && continue
+      if is_allowed_app_icon_resource "$path"; then
+        continue
+      fi
+      printf '%s\n' "$path"
+    done
+  }
+
+  TRACKED_MEDIA="$(git -C "$ROOT_DIR" ls-files | grep -Ei "$MEDIA_PATTERN" | filter_private_media || true)"
+  STAGED_MEDIA="$(git -C "$ROOT_DIR" diff --cached --name-only --diff-filter=ACMRT | grep -Ei "$MEDIA_PATTERN" | filter_private_media || true)"
 
   if [[ -n "$TRACKED_MEDIA$STAGED_MEDIA" ]]; then
     echo "Media privacy check failed. Do not commit private video, image, or audio files." >&2
