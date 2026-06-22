@@ -20,7 +20,8 @@ struct ContentView: View {
             case .videos:
                 VideoLibraryView(
                     store: controller.videoLibraryStore,
-                    scanner: controller.videoScanner
+                    scanner: controller.videoScanner,
+                    paths: controller.paths
                 )
             case .settings:
                 SettingsView(controller: controller)

@@ -28,6 +28,7 @@ enum PersistenceSelfTest {
         settingsStore.settings.playbackMode = .loopSelected
         settingsStore.settings.reminderVolume = 22
         settingsStore.settings.launchAtLoginEnabled = true
+        settingsStore.settings.playgroundModeEnabled = true
         settingsStore.pauseToday()
 
         let historyStore = HistoryStore(paths: paths)
@@ -54,12 +55,15 @@ enum PersistenceSelfTest {
         let settingsPersisted = reloadedSettingsStore.settings.playbackMode == .loopSelected
             && Int(reloadedSettingsStore.settings.reminderVolume) == 22
             && reloadedSettingsStore.settings.launchAtLoginEnabled
+            && reloadedSettingsStore.settings.playgroundModeEnabled
             && reloadedSettingsStore.isPausedToday
         let historyPersisted = reloadedHistoryStore.history.todayReminderCount == 1
+            && reloadedHistoryStore.history.todayCompletedCount == 1
             && reloadedHistoryStore.history.lastReminderAt != nil
             && reloadedHistoryStore.history.lastConfirmationCompletedAt != nil
         let corruptJSONRecovered = verifyCorruptJSONBackup(paths: paths)
         let schedulerRulesPassed = verifySchedulerRuleEdges()
+        let playgroundConfigurationPassed = verifyPlaygroundConfiguration()
 
         let passed = rulePersisted
             && videoPersisted
@@ -67,6 +71,7 @@ enum PersistenceSelfTest {
             && historyPersisted
             && corruptJSONRecovered
             && schedulerRulesPassed
+            && playgroundConfigurationPassed
         let lines = [
             "[DrinkingProject] self_test_persistence support_dir=\(paths.appSupportDirectory.path)",
             "[DrinkingProject] self_test_persistence rule=\(rulePersisted)",
@@ -75,6 +80,7 @@ enum PersistenceSelfTest {
             "[DrinkingProject] self_test_persistence history=\(historyPersisted)",
             "[DrinkingProject] self_test_persistence corrupt_json_backup=\(corruptJSONRecovered)",
             "[DrinkingProject] self_test_persistence scheduler_edges=\(schedulerRulesPassed)",
+            "[DrinkingProject] self_test_persistence playground_manual_only=\(playgroundConfigurationPassed)",
             "[DrinkingProject] self_test_persistence result=\(passed ? "pass" : "fail")"
         ]
         FileHandle.standardOutput.write(Data((lines.joined(separator: "\n") + "\n").utf8))
@@ -109,5 +115,43 @@ enum PersistenceSelfTest {
             && overnightRule.matches(minuteOfDay: 1 * 60 + 30)
             && overnightRule.matches(minuteOfDay: 2 * 60)
             && !overnightRule.matches(minuteOfDay: 3 * 60)
+    }
+
+    private static func verifyPlaygroundConfiguration() -> Bool {
+        let rule = ReminderRule.defaultRule
+        let manualPlayground = ReminderConfiguration.make(
+            rule: rule,
+            playbackMode: .advanceOnEnd,
+            isManual: true,
+            playgroundModeEnabled: true,
+            friendlyMessage: "test"
+        )
+        let scheduledPlaygroundSetting = ReminderConfiguration.make(
+            rule: rule,
+            playbackMode: .advanceOnEnd,
+            isManual: false,
+            playgroundModeEnabled: true,
+            friendlyMessage: "test"
+        )
+        let manualNormal = ReminderConfiguration.make(
+            rule: rule,
+            playbackMode: .advanceOnEnd,
+            isManual: true,
+            playgroundModeEnabled: false,
+            friendlyMessage: "test"
+        )
+
+        return manualPlayground.lockSeconds == 3
+            && manualPlayground.requiredConfirmations == 1
+            && manualPlayground.confirmationCooldownSeconds == 1
+            && manualPlayground.isPlaygroundMode
+            && scheduledPlaygroundSetting.lockSeconds == rule.lockSeconds
+            && scheduledPlaygroundSetting.requiredConfirmations == rule.requiredConfirmations
+            && scheduledPlaygroundSetting.confirmationCooldownSeconds == rule.confirmationCooldownSeconds
+            && !scheduledPlaygroundSetting.isPlaygroundMode
+            && manualNormal.lockSeconds == rule.lockSeconds
+            && manualNormal.requiredConfirmations == rule.requiredConfirmations
+            && manualNormal.confirmationCooldownSeconds == rule.confirmationCooldownSeconds
+            && !manualNormal.isPlaygroundMode
     }
 }

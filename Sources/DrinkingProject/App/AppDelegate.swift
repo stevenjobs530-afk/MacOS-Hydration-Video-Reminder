@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Darwin
 
 @MainActor
@@ -6,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let controller = AppController.shared
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -19,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Darwin.exit(passed ? 0 : 1)
         }
         configureStatusMenu()
+        observeController()
         controller.startScheduler()
 
         if controller.shouldTestOnLaunch {
@@ -34,27 +37,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func configureStatusMenu() {
-        statusItem.button?.title = "水"
+        statusItem.button?.title = controller.statusItemTitle
         statusItem.button?.toolTip = "Drinking Project"
         menu.delegate = self
         statusItem.menu = menu
         rebuildMenu()
     }
 
+    private func observeController() {
+        controller.$activeReminder
+            .sink { [weak self] _ in
+                self?.rebuildMenu()
+            }
+            .store(in: &cancellables)
+
+        controller.settingsStore.$settings
+            .sink { [weak self] _ in
+                self?.rebuildMenu()
+            }
+            .store(in: &cancellables)
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        controller.scanVideos()
         rebuildMenu()
     }
 
     private func rebuildMenu() {
+        statusItem.button?.title = controller.statusItemTitle
         menu.removeAllItems()
 
-        let stateItem = NSMenuItem(title: controller.currentStatusText, action: nil, keyEquivalent: "")
+        let stateItem = NSMenuItem(title: "当前状态：\(controller.currentStatusText)", action: nil, keyEquivalent: "")
         stateItem.isEnabled = false
         menu.addItem(stateItem)
 
         let nextItem = NSMenuItem(title: controller.nextReminderText, action: nil, keyEquivalent: "")
         nextItem.isEnabled = false
         menu.addItem(nextItem)
+
+        let videoItem = NSMenuItem(title: "可播放视频：\(controller.playableVideoCount)", action: nil, keyEquivalent: "")
+        videoItem.isEnabled = false
+        menu.addItem(videoItem)
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(title: "打开管理窗口", action: #selector(openManagementWindow), keyEquivalent: ""))
