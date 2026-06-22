@@ -30,6 +30,13 @@ final class AppController: ObservableObject {
 
     private(set) var shouldTestOnLaunch = false
     private(set) var shouldRunPersistenceSelfTest = false
+    private let friendlyMessages = [
+        "喝一口水，顺便让眼睛休息一下。",
+        "先喝水，再继续。",
+        "今天的自己也需要补水。",
+        "完成确认后就放你回去。",
+        "小小补水一下，等会儿继续做正事。"
+    ]
 
     private init() {
         paths = AppPaths(arguments: CommandLine.arguments)
@@ -60,12 +67,25 @@ final class AppController: ObservableObject {
 
     var currentStatusText: String {
         if !settingsStore.settings.remindersEnabled {
-            return "状态：提醒已关闭"
+            return "提醒已关闭"
         }
         if settingsStore.isPausedToday {
-            return "状态：今日已暂停"
+            return "今日已暂停"
         }
-        return "状态：提醒运行中"
+        if activeReminder != nil {
+            return "正在提醒"
+        }
+        return "今日提醒运行中"
+    }
+
+    var statusItemTitle: String {
+        if activeReminder != nil {
+            return "水!"
+        }
+        if settingsStore.isPausedToday {
+            return "水⏸"
+        }
+        return "水"
     }
 
     var nextReminderText: String {
@@ -83,6 +103,10 @@ final class AppController: ObservableObject {
     var nextReminderDate: Date? {
         guard settingsStore.settings.remindersEnabled, !settingsStore.isPausedToday else { return nil }
         return scheduler.nextReminderDate(after: Date())
+    }
+
+    var playableVideoCount: Int {
+        videoScanner.lastScanResult.playableVideos.count
     }
 
     func enableReminders() {
@@ -138,17 +162,12 @@ final class AppController: ObservableObject {
 
     private func showReminder(for rule: ReminderRule, isManual: Bool) {
         guard activeReminder == nil else { return }
-        let logLine = "[DrinkingProject] reminder_presenting manual=\(isManual) rule_id=\(rule.id.uuidString)\n"
+        let configuration = configuration(for: rule, isManual: isManual)
+        let logLine = "[DrinkingProject] reminder_presenting manual=\(isManual) playground=\(configuration.isPlaygroundMode) rule_id=\(rule.id.uuidString)\n"
         FileHandle.standardOutput.write(Data(logLine.utf8))
         BackgroundMediaControl.pauseLikelyMediaSources()
         SystemAudio.setOutputVolume(to: Int(settingsStore.settings.reminderVolume))
 
-        let configuration = ReminderConfiguration(
-            lockSeconds: rule.lockSeconds,
-            requiredConfirmations: rule.requiredConfirmations,
-            confirmationCooldownSeconds: rule.confirmationCooldownSeconds,
-            playbackMode: settingsStore.settings.playbackMode
-        )
         let reminder = ReminderWindowController(
             videoURL: videoScanner.nextPlayableVideoURL(),
             videoScanner: videoScanner,
@@ -165,5 +184,15 @@ final class AppController: ObservableObject {
             self?.activeReminder = nil
         }
         reminder.present()
+    }
+
+    private func configuration(for rule: ReminderRule, isManual: Bool) -> ReminderConfiguration {
+        ReminderConfiguration.make(
+            rule: rule,
+            playbackMode: settingsStore.settings.playbackMode,
+            isManual: isManual,
+            playgroundModeEnabled: settingsStore.settings.playgroundModeEnabled,
+            friendlyMessage: friendlyMessages.randomElement() ?? "先喝一口水。"
+        )
     }
 }

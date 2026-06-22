@@ -66,6 +66,16 @@ struct SettingsView: View {
                 }
             }
 
+            Section("轻松测试") {
+                Toggle("轻松测试模式", isOn: $store.settings.playgroundModeEnabled)
+                Text("只影响手动测试提醒，不影响正式定时提醒。开启后手动测试会使用约 3 秒等待、1 次确认、1 秒冷却。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("快速测试提醒窗口") {
+                    controller.showTestReminder()
+                }
+            }
+
             Section {
                 Button("恢复默认设置") {
                     store.restoreDefaults()

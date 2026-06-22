@@ -108,6 +108,18 @@ body.no-video {
   outline-offset: 2px;
 }
 
+.test-mode-pill {
+  padding: 6px 10px;
+  border: 1px solid rgba(185, 242, 228, 0.34);
+  border-radius: 8px;
+  background: rgba(8, 30, 28, 0.44);
+  color: rgba(235, 255, 250, 0.94);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  backdrop-filter: blur(12px) saturate(1.05);
+}
+
 .video-warning {
   position: absolute;
   top: clamp(70px, 10vh, 104px);
@@ -272,6 +284,11 @@ h1 {
 
   .playback-control {
     max-width: 54vw;
+  }
+
+  .test-mode-pill {
+    max-width: 44vw;
+    text-align: center;
   }
 
   .ritual {

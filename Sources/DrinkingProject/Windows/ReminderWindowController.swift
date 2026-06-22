@@ -48,6 +48,7 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
         playbackMode = configuration.playbackMode
         remainingLockSeconds = configuration.lockSeconds
         statusText = "\(configuration.lockSeconds) 秒后再确认"
+        hintText = configuration.friendlyMessage
         hasPlayableVideo = videoURL != nil
 
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -320,7 +321,7 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
         confirmationCount = 0
         lastConfirmationDate = nil
         statusText = "\(configuration.lockSeconds) 秒后再确认"
-        hintText = "把杯子拿起来，慢慢喝完这一口。"
+        hintText = configuration.friendlyMessage
         buttonText = "等待中"
         isConfirmationVisible = false
         isConfirmationEnabled = false
@@ -335,7 +336,9 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
                 timer.invalidate()
                 unlockTimer = nil
                 statusText = "请点击 \(configuration.requiredConfirmations) 次，每次间隔至少 \(configuration.confirmationCooldownSeconds) 秒"
-                hintText = "每次确认之间保留一点间隔，确保不是随手点掉。"
+                hintText = configuration.isPlaygroundMode
+                    ? "测试模式已缩短确认流程，点一次就能完成。"
+                    : "每次确认之间保留一点间隔，确保不是随手点掉。"
                 buttonText = "已饮水"
                 isConfirmationVisible = true
                 isConfirmationEnabled = true
@@ -413,6 +416,9 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
             "buttonText": buttonText,
             "playbackMode": playbackMode.rawValue,
             "hasPlayableVideo": hasPlayableVideo,
+            "isPlaygroundMode": configuration.isPlaygroundMode,
+            "friendlyMessage": configuration.friendlyMessage,
+            "testModeText": "测试模式：等待时间已缩短",
             "videoMessage": "未找到可播放视频，请检查 视频/视频素材/"
         ]
         guard

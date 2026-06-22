@@ -10,12 +10,16 @@ const state = {
   buttonText: "等待中",
   playbackMode: "advanceOnEnd",
   hasPlayableVideo: true,
+  isPlaygroundMode: false,
+  friendlyMessage: "喝一口水，顺便让眼睛休息一下。",
+  testModeText: "测试模式：等待时间已缩短",
   videoMessage: "未找到可播放视频，请检查 视频/视频素材/"
 };
 
 const elements = {
   videoWarning: document.getElementById("videoWarning"),
   playbackControl: document.getElementById("playbackControl"),
+  testModePill: document.getElementById("testModePill"),
   playbackMode: document.getElementById("playbackModeSelect"),
   role: document.getElementById("screenRole"),
   status: document.getElementById("statusText"),
@@ -41,6 +45,8 @@ function applyState(nextState) {
   elements.videoWarning.hidden = state.hasPlayableVideo;
   elements.videoWarning.textContent = state.videoMessage;
   elements.playbackControl.hidden = isSecondary;
+  elements.testModePill.hidden = !state.isPlaygroundMode || isSecondary;
+  elements.testModePill.textContent = state.testModeText;
   if (elements.playbackMode.value !== state.playbackMode) {
     elements.playbackMode.value = state.playbackMode;
   }
@@ -48,7 +54,7 @@ function applyState(nextState) {
   elements.status.textContent = state.statusText;
   elements.countdown.textContent = formatTime(state.remainingSeconds);
   elements.progress.textContent = `确认 ${state.confirmationCount} / ${state.requiredConfirmations}`;
-  elements.hint.textContent = isSecondary ? "请在主屏幕完成确认" : state.hintText;
+  elements.hint.textContent = isSecondary ? "请在主屏幕完成确认" : (state.hintText || state.friendlyMessage);
 
   elements.button.hidden = isSecondary || !state.buttonVisible;
   elements.button.disabled = !state.buttonEnabled;

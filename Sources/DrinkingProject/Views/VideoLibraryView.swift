@@ -5,6 +5,7 @@ import SwiftUI
 struct VideoLibraryView: View {
     @ObservedObject var store: VideoLibraryStore
     @ObservedObject var scanner: VideoScanner
+    let paths: AppPaths
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -12,6 +13,9 @@ struct VideoLibraryView: View {
                 Text("视频库")
                     .font(.largeTitle.weight(.semibold))
                 Spacer()
+                Button("打开素材文件夹") {
+                    openMaterialFolder()
+                }
                 Button("添加文件") {
                     addReference(choosingFolders: false)
                 }
@@ -83,7 +87,7 @@ struct VideoLibraryView: View {
                     .font(.system(size: 13))
 
                     if scanner.lastScanResult.playableVideos.isEmpty {
-                        Label("未找到可播放视频。请检查本地目录、外接硬盘连接或视频格式。", systemImage: "exclamationmark.triangle")
+                        Label("未找到可播放视频。把 mp4/mov/m4v 放到 视频/视频素材/ 里，然后点击扫描。", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
 
@@ -156,5 +160,13 @@ struct VideoLibraryView: View {
 
     private func revealInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func openMaterialFolder() {
+        try? FileManager.default.createDirectory(
+            at: paths.videoMaterialDirectory,
+            withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(paths.videoMaterialDirectory)
     }
 }

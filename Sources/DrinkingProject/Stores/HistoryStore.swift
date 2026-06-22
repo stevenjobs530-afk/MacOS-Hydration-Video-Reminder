@@ -32,6 +32,7 @@ final class HistoryStore: ObservableObject {
 
     func recordConfirmationCompleted() {
         rolloverIfNeeded()
+        history.todayCompletedCount += 1
         history.lastConfirmationCompletedAt = Date()
     }
 

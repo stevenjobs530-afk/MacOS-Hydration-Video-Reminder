@@ -2,6 +2,10 @@ import AVFoundation
 import Combine
 import Foundation
 
+private final class PlayabilityResult: @unchecked Sendable {
+    var value = false
+}
+
 @MainActor
 final class VideoScanner: ObservableObject {
     @Published private(set) var lastScanResult = VideoScanResult.empty
@@ -160,7 +164,20 @@ final class VideoScanner: ObservableObject {
     }
 
     private func isPlayable(_ url: URL) -> Bool {
-        AVURLAsset(url: url).isPlayable
+        // Keep the scanner synchronous while using the modern AVAsset async playability property.
+        let semaphore = DispatchSemaphore(value: 0)
+        let result = PlayabilityResult()
+
+        Task.detached(priority: .utility) {
+            let asset = AVURLAsset(url: url)
+            result.value = (try? await asset.load(.isPlayable)) ?? false
+            semaphore.signal()
+        }
+
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            return false
+        }
+        return result.value
     }
 
     private func logScanResult(_ result: VideoScanResult) {
