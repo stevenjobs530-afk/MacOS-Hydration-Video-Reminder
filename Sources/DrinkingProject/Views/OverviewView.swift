@@ -63,22 +63,25 @@ struct OverviewView: View {
                 Button("扫描视频") {
                     controller.scanVideos()
                 }
-                Button("今日暂停") {
-                    controller.pauseToday()
-                }
-                Button("恢复今日提醒") {
-                    controller.resumeToday()
+                if settingsStore.isPausedToday {
+                    Button("恢复今日提醒") {
+                        controller.resumeToday()
+                    }
+                } else {
+                    Button("今日暂停") {
+                        controller.pauseToday()
+                    }
                 }
             }
 
-            Toggle("轻松测试模式", isOn: $settingsStore.settings.playgroundModeEnabled)
-                .toggleStyle(.switch)
-            Text("只影响手动测试提醒。开启后等待约 3 秒、确认 1 次、冷却约 1 秒；正式定时提醒仍使用真实规则。")
-                .foregroundStyle(.secondary)
-                .font(.callout)
+            if settingsStore.settings.playgroundModeEnabled {
+                Text("轻松测试模式已开启：手动测试会等待约 3 秒、确认 1 次；正式定时提醒仍按真实规则。可在「设置」中关闭。")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
 
             if scanner.lastScanResult.playableVideos.isEmpty {
-                Text("未找到可播放视频。把 mp4/mov/m4v 放到 `视频/视频素材/` 里，然后点击扫描。")
+                Text("未找到可播放视频。把 mp4/mov/m4v/avi/mkv/webm 放到 `视频/视频素材/` 里，或在「视频库」添加视频。")
                     .foregroundStyle(.orange)
                     .font(.callout)
             }
@@ -98,6 +101,8 @@ struct OverviewView: View {
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "暂无" }
         let formatter = DateFormatter()
+        formatter.calendar = UKDayClock.calendar
+        formatter.timeZone = UKDayClock.timeZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)

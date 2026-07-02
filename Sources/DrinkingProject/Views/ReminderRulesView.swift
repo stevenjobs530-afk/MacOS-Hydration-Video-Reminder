@@ -29,7 +29,7 @@ struct ReminderRulesView: View {
                     .font(.callout)
             }
 
-            Text("同一分钟如果多个规则同时匹配，只会触发列表中靠前的第一个规则。默认规则会在 08:00 到 22:00 每 30 分钟触发，包含 22:00，不包含 22:30。")
+            Text("同一分钟如果多个规则同时匹配，只会触发列表中靠前的第一个规则。默认规则按英国时间在 08:00 到 22:00 每 30 分钟触发，包含 22:00，不包含 22:30。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -45,6 +45,28 @@ struct ReminderRulesView: View {
                                     store.deleteRule(id: rule.id)
                                 }
                             }
+
+                            HStack(spacing: 8) {
+                                Text("强度预设")
+                                    .foregroundStyle(.secondary)
+                                ForEach(ReminderIntensityPreset.allCases) { preset in
+                                    Button(preset.title) {
+                                        var updated = rule
+                                        updated.applyIntensity(preset)
+                                        $rule.wrappedValue = updated
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(rule.matchedIntensityPreset == preset ? Color.accentColor : Color.secondary)
+                                }
+                                Text("当前：\(rule.matchedIntensityPreset?.title ?? "自定义")")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .font(.system(size: 13))
+
+                            Text("预设只调整锁定、确认次数、冷却三项；时间段和间隔不变，仍可在下面手动微调。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
                             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                                 GridRow {

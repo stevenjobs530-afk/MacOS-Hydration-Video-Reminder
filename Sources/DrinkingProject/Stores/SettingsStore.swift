@@ -8,13 +8,6 @@ final class SettingsStore: ObservableObject {
     }
 
     private let fileURL: URL
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar.current
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 
     init(paths: AppPaths) {
         fileURL = paths.appSupportDirectory.appendingPathComponent("settings.json")
@@ -23,7 +16,7 @@ final class SettingsStore: ObservableObject {
     }
 
     var todayKey: String {
-        dateFormatter.string(from: Date())
+        UKDayClock.dayKey()
     }
 
     var isPausedToday: Bool {

@@ -1,6 +1,7 @@
 import Foundation
 
 struct AppPaths {
+    let variant: AppVariant
     let projectRoot: URL
     let appSupportDirectory: URL
     let webResourceDirectory: URL
@@ -14,6 +15,8 @@ struct AppPaths {
     }
 
     init(arguments: [String]) {
+        let resolvedVariant = AppVariant.resolve(arguments: arguments)
+        variant = resolvedVariant
         projectRoot = Self.resolveProjectRoot(arguments: arguments)
 
         if let explicitSupportPath = Self.value(after: "--app-support-dir", in: arguments) {
@@ -27,7 +30,7 @@ struct AppPaths {
             let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
                 .first ?? FileManager.default.homeDirectoryForCurrentUser
             appSupportDirectory = appSupportRoot
-                .appendingPathComponent("Drinking Project", isDirectory: true)
+                .appendingPathComponent(resolvedVariant.appSupportFolderName, isDirectory: true)
                 .standardizedFileURL
         }
         try? FileManager.default.createDirectory(

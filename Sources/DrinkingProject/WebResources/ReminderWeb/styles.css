@@ -249,6 +249,101 @@ h1 {
   text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8);
 }
 
+/* Compact "Mac 弹窗" style: the window itself is a small rounded vibrancy card,
+   so the page keeps a transparent background and lays content out as a column. */
+body.compact,
+body.compact.no-video {
+  background: transparent;
+}
+
+body.compact::before {
+  background:
+    radial-gradient(circle at 82% 12%, rgba(185, 242, 228, 0.14), transparent 42%),
+    linear-gradient(165deg, rgba(9, 16, 20, 0.42), rgba(5, 8, 11, 0.66));
+}
+
+body.compact .reminder-shell {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 14px;
+}
+
+body.compact .topline {
+  position: static;
+  justify-content: flex-start;
+}
+
+body.compact .topline-meta,
+body.compact .video-warning,
+body.compact .playback-control {
+  display: none;
+}
+
+body.compact .ritual {
+  position: static;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+body.compact .status {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+body.compact h1 {
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+body.compact .hint {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body.compact .action-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  justify-self: stretch;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+body.compact .timer {
+  font-size: 34px;
+  text-align: left;
+}
+
+body.compact .progress {
+  margin: 0;
+  font-size: 13px;
+  text-align: left;
+}
+
+body.compact .confirm {
+  width: 100%;
+  height: 40px;
+  margin-top: 8px;
+  font-size: 15px;
+}
+
+body.compact .safe-exit {
+  position: static;
+  margin-top: 10px;
+  font-size: 10px;
+  text-align: right;
+}
+
 .secondary .confirm {
   display: none;
 }

@@ -39,7 +39,7 @@ final class ReminderScheduler {
     func nextReminderDate(after date: Date) -> Date? {
         let rules = ruleProvider().filter(\.enabled)
         guard !rules.isEmpty else { return nil }
-        let calendar = Calendar.current
+        let calendar = UKDayClock.calendar
         let start = calendar.dateInterval(of: .minute, for: date)?.start ?? date
         for offset in 0..<(60 * 24 * 2) {
             guard let candidate = calendar.date(byAdding: .minute, value: offset, to: start) else {
@@ -56,7 +56,7 @@ final class ReminderScheduler {
     private func checkSchedule() {
         guard canFire() else { return }
         let now = Date()
-        let calendar = Calendar.current
+        let calendar = UKDayClock.calendar
         compactOldFiredSlotKeys(now: now, calendar: calendar)
         let key = slotKey(for: now, calendar: calendar)
         guard !firedSlotKeys.contains(key) else { return }

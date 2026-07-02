@@ -7,6 +7,7 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
     private let videoScanner: VideoScanner
     private let settingsStore: SettingsStore
     private let configuration: ReminderConfiguration
+    private let mediaEnforcementReport: BackgroundMediaEnforcementReport
     private let webResourceDirectory: URL
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
@@ -30,6 +31,10 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
     private var isConfirmationVisible = false
     private var isConfirmationEnabled = false
     private let hasPlayableVideo: Bool
+    /// Compact "Mac 弹窗" style: a small centered panel on the main screen only,
+    /// no video, with a pop-in animation. The Swift lock/confirm flow is identical.
+    private let isCompact: Bool
+    private static let compactWindowSize = NSSize(width: 460, height: 340)
 
     var onClosed: (() -> Void)?
     var onCompleted: (() -> Void)?
@@ -39,33 +44,60 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
         videoScanner: VideoScanner,
         settingsStore: SettingsStore,
         configuration: ReminderConfiguration,
+        mediaEnforcementReport: BackgroundMediaEnforcementReport,
         webResourceDirectory: URL
     ) {
         self.videoScanner = videoScanner
         self.settingsStore = settingsStore
         self.configuration = configuration
+        self.mediaEnforcementReport = mediaEnforcementReport
         self.webResourceDirectory = webResourceDirectory
         playbackMode = configuration.playbackMode
         remainingLockSeconds = configuration.lockSeconds
         statusText = "\(configuration.lockSeconds) 秒后再确认"
         hintText = configuration.friendlyMessage
         hasPlayableVideo = videoURL != nil
+        let isCompact = configuration.windowStyle == .compactPopup
+        self.isCompact = isCompact
 
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let contentRect: NSRect
+        if isCompact {
+            let size = Self.compactWindowSize
+            contentRect = NSRect(
+                x: screenFrame.midX - size.width / 2,
+                y: screenFrame.midY - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+        } else {
+            contentRect = screenFrame
+        }
         let window = ReminderWindow(
-            contentRect: screenFrame,
+            contentRect: contentRect,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         window.level = .screenSaver
-        window.backgroundColor = .black
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.isReleasedWhenClosed = false
+        if isCompact {
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.hasShadow = true
+        } else {
+            window.backgroundColor = .black
+        }
         super.init(window: window)
         window.delegate = self
+        window.onCloseShortcut = { [weak self] in
+            self?.closeReminder()
+        }
         buildInterface(videoURL: videoURL)
-        buildSecondaryScreenWindows(videoURL: videoURL)
+        if !isCompact && settingsStore.settings.reminderScreenMode == .allScreens {
+            buildSecondaryScreenWindows(videoURL: videoURL)
+        }
         setCurrentVideo(videoURL, shouldPlay: false)
     }
 
@@ -76,17 +108,64 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
     func present() {
         guard let window else { return }
         NSApp.activate(ignoringOtherApps: true)
-        window.setFrame(NSScreen.main?.frame ?? window.frame, display: true)
+        if isCompact {
+            centerCompactWindow(window)
+        } else {
+            window.setFrame(NSScreen.main?.frame ?? window.frame, display: true)
+        }
         for secondaryWindow in secondaryWindows {
             secondaryWindow.orderFrontRegardless()
         }
         window.makeKeyAndOrderFront(nil)
+        if isCompact {
+            animateCompactPopIn(window)
+        }
         startLockCountdown()
         player?.play()
         secondaryPlayers.forEach { $0.play() }
     }
 
-    func forceCloseFromConfirmation() {
+    private func centerCompactWindow(_ window: NSWindow) {
+        let screenFrame = NSScreen.main?.visibleFrame ?? window.frame
+        let size = Self.compactWindowSize
+        // Slightly above true center, matching where macOS places alert panels.
+        let origin = NSPoint(
+            x: screenFrame.midX - size.width / 2,
+            y: screenFrame.minY + (screenFrame.height - size.height) * 0.58
+        )
+        window.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    /// Mac-style pop-in: the panel springs up from ~86% scale while fading in,
+    /// like a system alert appearing.
+    private func animateCompactPopIn(_ window: NSWindow) {
+        guard let layer = window.contentView?.layer else { return }
+        let bounds = layer.bounds
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+
+        let scale = CASpringAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.86
+        scale.toValue = 1.0
+        scale.mass = 1
+        scale.stiffness = 320
+        scale.damping = 20
+        scale.initialVelocity = 6
+        scale.duration = scale.settlingDuration
+        layer.add(scale, forKey: "compactPopIn")
+
+        window.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        }
+    }
+
+    /// Cleanly close the reminder (timers, players, secondary screens, web handlers) without
+    /// quitting the app. Used by both the completion path and the Command+W shortcut.
+    /// Does not record a drinking completion; callers record that separately when relevant.
+    func closeReminder() {
         mayClose = true
         cleanup()
         close()
@@ -134,12 +213,19 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
     private func buildInterface(videoURL: URL?) {
         guard let contentView = window?.contentView else { return }
         contentView.wantsLayer = true
+
+        if isCompact {
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            let card = addCompactCard(to: contentView)
+            webView = addReminderWebView(to: card, role: "primary")
+            return
+        }
+
         contentView.layer?.backgroundColor = NSColor.black.cgColor
 
         if let videoURL {
             let queuePlayer = AVQueuePlayer()
-            queuePlayer.isMuted = true
-            queuePlayer.volume = 0
+            configureVideoAudio(for: queuePlayer, emitsAudio: true)
             player = queuePlayer
             addCenteredPlayerView(player: queuePlayer, videoURL: videoURL, to: contentView)
         }
@@ -148,7 +234,32 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
         webView = addReminderWebView(to: contentView, role: "primary")
     }
 
+    /// Rounded dark vibrancy panel that hosts the compact reminder UI.
+    private func addCompactCard(to contentView: NSView) -> NSView {
+        let card = NSVisualEffectView()
+        card.material = .hudWindow
+        card.blendingMode = .behindWindow
+        card.state = .active
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 18
+        card.layer?.cornerCurve = .continuous
+        card.layer?.masksToBounds = true
+        card.layer?.borderWidth = 1
+        card.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        card.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(card)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            card.topAnchor.constraint(equalTo: contentView.topAnchor),
+            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        return card
+    }
+
     private func buildSecondaryScreenWindows(videoURL: URL?) {
+        // The reminder always covers every connected display simultaneously, whether the
+        // built-in laptop screen or an external monitor. There is no "main screen only" mode.
         let mainFrame = NSScreen.main?.frame
         let secondaryScreens = NSScreen.screens.filter { screen in
             guard let mainFrame else { return true }
@@ -167,6 +278,9 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
             secondaryWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             secondaryWindow.isReleasedWhenClosed = false
             secondaryWindow.delegate = self
+            secondaryWindow.onCloseShortcut = { [weak self] in
+                self?.closeReminder()
+            }
 
             let contentView = NSView(frame: screen.frame)
             contentView.wantsLayer = true
@@ -175,8 +289,7 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
 
             if let videoURL {
                 let queuePlayer = AVQueuePlayer()
-                queuePlayer.isMuted = true
-                queuePlayer.volume = 0
+                configureVideoAudio(for: queuePlayer, emitsAudio: false)
                 addCenteredPlayerView(player: queuePlayer, videoURL: videoURL, to: contentView)
                 secondaryPlayers.append(queuePlayer)
             }
@@ -244,6 +357,12 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
             playerView.topAnchor.constraint(equalTo: contentView.topAnchor),
             playerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
+    }
+
+    private func configureVideoAudio(for queuePlayer: AVQueuePlayer, emitsAudio: Bool) {
+        let volume = emitsAudio ? settingsStore.settings.reminderAudioVolume : 0
+        queuePlayer.isMuted = volume <= 0
+        queuePlayer.volume = volume
     }
 
     private func setPlaybackMode(_ mode: VideoPlaybackMode) {
@@ -376,7 +495,7 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
             isConfirmationEnabled = false
             updateWebReminderViews()
             onCompleted?()
-            forceCloseFromConfirmation()
+            closeReminder()
             return
         }
 
@@ -416,9 +535,11 @@ final class ReminderWindowController: NSWindowController, NSWindowDelegate, WKNa
             "buttonText": buttonText,
             "playbackMode": playbackMode.rawValue,
             "hasPlayableVideo": hasPlayableVideo,
+            "isCompact": isCompact,
             "isPlaygroundMode": configuration.isPlaygroundMode,
             "friendlyMessage": configuration.friendlyMessage,
             "testModeText": "测试模式：等待时间已缩短",
+            "mediaWarningText": mediaEnforcementReport.reminderWarningText ?? "",
             "videoMessage": "未找到可播放视频，请检查 视频/视频素材/"
         ]
         guard

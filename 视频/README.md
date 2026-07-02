@@ -1,13 +1,13 @@
 # Local Media Placeholder
 
-Put your own reminder videos here.
+Put your own reminder videos in this local folder after cloning the repository.
 
 Supported formats:
 
 ```text
-mp4, mov, m4v
+mp4, mov, m4v, avi, mkv, webm
 ```
 
-This repository intentionally does not include personal videos, images, or audio files. The app scans this folder at reminder time and randomly chooses one playable local video.
+This repository intentionally does not include personal videos, images, audio files, screenshots, generated app bundles, or local app data.
 
-You can keep this folder empty in GitHub and add your private media only on your own Mac.
+Keep this folder empty in GitHub and add private media only on your own Mac.

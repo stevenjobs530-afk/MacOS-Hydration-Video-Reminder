@@ -7,13 +7,15 @@ struct ReminderConfiguration {
     var playbackMode: VideoPlaybackMode
     var isPlaygroundMode: Bool
     var friendlyMessage: String
+    var windowStyle: ReminderWindowStyle
 
     static func make(
         rule: ReminderRule,
         playbackMode: VideoPlaybackMode,
         isManual: Bool,
         playgroundModeEnabled: Bool,
-        friendlyMessage: String
+        friendlyMessage: String,
+        windowStyle: ReminderWindowStyle
     ) -> ReminderConfiguration {
         let usePlayground = isManual && playgroundModeEnabled
         return ReminderConfiguration(
@@ -22,7 +24,8 @@ struct ReminderConfiguration {
             confirmationCooldownSeconds: usePlayground ? min(rule.confirmationCooldownSeconds, 1) : rule.confirmationCooldownSeconds,
             playbackMode: playbackMode,
             isPlaygroundMode: usePlayground,
-            friendlyMessage: friendlyMessage
+            friendlyMessage: friendlyMessage,
+            windowStyle: windowStyle
         )
     }
 }

@@ -8,20 +8,15 @@ final class HistoryStore: ObservableObject {
     }
 
     private let fileURL: URL
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar.current
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    private var rolloverTimer: Timer?
 
     init(paths: AppPaths) {
         fileURL = paths.appSupportDirectory.appendingPathComponent("history.json")
-        let today = dateFormatter.string(from: Date())
+        let today = UKDayClock.dayKey()
         history = JSONFileStore.load(ReminderHistory.self, from: fileURL, fallback: .empty(todayKey: today))
         rolloverIfNeeded()
         save()
+        scheduleNextRollover()
     }
 
     func recordReminderShown() {
@@ -37,10 +32,28 @@ final class HistoryStore: ObservableObject {
     }
 
     private func rolloverIfNeeded() {
-        let today = dateFormatter.string(from: Date())
+        let today = UKDayClock.dayKey()
         if history.todayKey != today {
             history = .empty(todayKey: today)
         }
+    }
+
+    private func scheduleNextRollover() {
+        rolloverTimer?.invalidate()
+        guard let nextMidnight = UKDayClock.startOfNextDay() else { return }
+        let timer = Timer(fire: nextMidnight.addingTimeInterval(0.5), interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.rolloverAtUKMidnight()
+            }
+        }
+        rolloverTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func rolloverAtUKMidnight() {
+        rolloverIfNeeded()
+        save()
+        scheduleNextRollover()
     }
 
     func save() {

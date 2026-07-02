@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 LABEL="com.local.drinkingproject"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-BINARY="$PROJECT_DIR/dist/Drinking Project.app/Contents/MacOS/DrinkingProject"
+BINARY="$PROJECT_DIR/软甲本体/Drinking Project.app/Contents/MacOS/DrinkingProject"
 
 cd "$PROJECT_DIR"
 /bin/bash "$PROJECT_DIR/script/build_and_run.sh" --build-only

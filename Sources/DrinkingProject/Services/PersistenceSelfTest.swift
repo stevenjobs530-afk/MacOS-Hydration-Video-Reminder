@@ -64,6 +64,8 @@ enum PersistenceSelfTest {
         let corruptJSONRecovered = verifyCorruptJSONBackup(paths: paths)
         let schedulerRulesPassed = verifySchedulerRuleEdges()
         let playgroundConfigurationPassed = verifyPlaygroundConfiguration()
+        let ukDayClockPassed = verifyUKDayClock()
+        let mediaLibraryWorkflowPassed = verifyMediaLibraryWorkflow(paths: paths)
 
         let passed = rulePersisted
             && videoPersisted
@@ -72,6 +74,8 @@ enum PersistenceSelfTest {
             && corruptJSONRecovered
             && schedulerRulesPassed
             && playgroundConfigurationPassed
+            && ukDayClockPassed
+            && mediaLibraryWorkflowPassed
         let lines = [
             "[DrinkingProject] self_test_persistence support_dir=\(paths.appSupportDirectory.path)",
             "[DrinkingProject] self_test_persistence rule=\(rulePersisted)",
@@ -81,6 +85,8 @@ enum PersistenceSelfTest {
             "[DrinkingProject] self_test_persistence corrupt_json_backup=\(corruptJSONRecovered)",
             "[DrinkingProject] self_test_persistence scheduler_edges=\(schedulerRulesPassed)",
             "[DrinkingProject] self_test_persistence playground_manual_only=\(playgroundConfigurationPassed)",
+            "[DrinkingProject] self_test_persistence uk_day_clock=\(ukDayClockPassed)",
+            "[DrinkingProject] self_test_persistence media_library_workflow=\(mediaLibraryWorkflowPassed)",
             "[DrinkingProject] self_test_persistence result=\(passed ? "pass" : "fail")"
         ]
         FileHandle.standardOutput.write(Data((lines.joined(separator: "\n") + "\n").utf8))
@@ -124,21 +130,24 @@ enum PersistenceSelfTest {
             playbackMode: .advanceOnEnd,
             isManual: true,
             playgroundModeEnabled: true,
-            friendlyMessage: "test"
+            friendlyMessage: "test",
+            windowStyle: .fullScreenVideo
         )
         let scheduledPlaygroundSetting = ReminderConfiguration.make(
             rule: rule,
             playbackMode: .advanceOnEnd,
             isManual: false,
             playgroundModeEnabled: true,
-            friendlyMessage: "test"
+            friendlyMessage: "test",
+            windowStyle: .fullScreenVideo
         )
         let manualNormal = ReminderConfiguration.make(
             rule: rule,
             playbackMode: .advanceOnEnd,
             isManual: true,
             playgroundModeEnabled: false,
-            friendlyMessage: "test"
+            friendlyMessage: "test",
+            windowStyle: .fullScreenVideo
         )
 
         return manualPlayground.lockSeconds == 3
@@ -153,5 +162,75 @@ enum PersistenceSelfTest {
             && manualNormal.requiredConfirmations == rule.requiredConfirmations
             && manualNormal.confirmationCooldownSeconds == rule.confirmationCooldownSeconds
             && !manualNormal.isPlaygroundMode
+    }
+
+    private static func verifyUKDayClock() -> Bool {
+        let calendar = UKDayClock.calendar
+        guard
+            let beforeMidnight = calendar.date(from: DateComponents(
+                timeZone: UKDayClock.timeZone,
+                year: 2026,
+                month: 6,
+                day: 30,
+                hour: 23,
+                minute: 59,
+                second: 30
+            )),
+            let midnight = calendar.date(from: DateComponents(
+                timeZone: UKDayClock.timeZone,
+                year: 2026,
+                month: 7,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0
+            )),
+            let nextDayStart = UKDayClock.startOfNextDay(after: beforeMidnight)
+        else {
+            return false
+        }
+
+        return UKDayClock.dayKey(for: beforeMidnight) == "2026-06-30"
+            && UKDayClock.dayKey(for: midnight) == "2026-07-01"
+            && abs(nextDayStart.timeIntervalSince(midnight)) < 0.1
+    }
+
+    private static func verifyMediaLibraryWorkflow(paths: AppPaths) -> Bool {
+        let sourceDirectory = paths.appSupportDirectory.appendingPathComponent("media-source", isDirectory: true)
+        let materialDirectory = paths.appSupportDirectory.appendingPathComponent("media-material", isDirectory: true)
+        try? FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: materialDirectory, withIntermediateDirectories: true)
+
+        let sourceURL = sourceDirectory.appendingPathComponent("sample.mp4")
+        try? Data("not a real movie, only an import workflow fixture".utf8).write(to: sourceURL, options: [.atomic])
+
+        let store = VideoLibraryStore(paths: paths)
+        let results = store.importVideos(from: [sourceURL, sourceURL], to: materialDirectory)
+        let importedItems = results.compactMap { result -> VideoItem? in
+            if case let .success(item) = result {
+                return item
+            }
+            return nil
+        }
+        guard importedItems.count == 2 else { return false }
+        let importedPaths = Set(importedItems.map(\.url.path))
+        guard importedPaths.count == 2 else { return false }
+        guard importedItems.allSatisfy({ FileManager.default.fileExists(atPath: $0.url.path) }) else { return false }
+
+        let renamed = importedItems[0]
+        store.renameVideo(id: renamed.id, displayName: "Renamed media")
+        let reloaded = VideoLibraryStore(paths: paths)
+        guard reloaded.items.contains(where: { $0.id == renamed.id && $0.displayName == "Renamed media" }) else {
+            return false
+        }
+
+        do {
+            try reloaded.deleteVideo(id: renamed.id, deleteFile: true)
+        } catch {
+            return false
+        }
+        let afterDelete = VideoLibraryStore(paths: paths)
+        return !FileManager.default.fileExists(atPath: renamed.url.path)
+            && !afterDelete.items.contains(where: { $0.id == renamed.id })
     }
 }

@@ -12,6 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         controller.applyLaunchArguments()
+        if controller.shouldTestBackgroundMedia {
+            let report = BackgroundMediaControl.enforceBackgroundMediaPause(includeInactiveDiagnostics: true)
+            print(report.summaryText)
+            Darwin.exit(0)
+        }
         if !controller.shouldRunPersistenceSelfTest, anotherInstanceIsRunning() {
             Darwin.exit(0)
         }
@@ -37,8 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func configureStatusMenu() {
-        statusItem.button?.title = controller.statusItemTitle
-        statusItem.button?.toolTip = "Drinking Project"
+        configureStatusIcon()
         menu.delegate = self
         statusItem.menu = menu
         rebuildMenu()
@@ -64,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func rebuildMenu() {
-        statusItem.button?.title = controller.statusItemTitle
+        configureStatusIcon()
         menu.removeAllItems()
 
         let stateItem = NSMenuItem(title: "当前状态：\(controller.currentStatusText)", action: nil, keyEquivalent: "")
@@ -88,7 +92,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "手动测试提醒窗口", action: #selector(testReminder), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出 Drinking Project", action: #selector(quitApp), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "退出 \(controller.paths.variant.displayName)", action: #selector(quitApp), keyEquivalent: "q"))
+    }
+
+    private func configureStatusIcon() {
+        statusItem.length = NSStatusItem.squareLength
+        guard let button = statusItem.button else { return }
+        button.title = ""
+        button.image = teaCupStatusImage()
+        button.imagePosition = .imageOnly
+        button.toolTip = "\(controller.paths.variant.displayName) · \(controller.currentStatusText)"
+    }
+
+    private func teaCupStatusImage() -> NSImage {
+        if let image = NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: "Drinking Project") {
+            image.isTemplate = true
+            return image
+        }
+
+        let image = NSImage(size: NSSize(width: 18, height: 18))
+        image.lockFocus()
+        NSColor.black.setStroke()
+        NSColor.black.setFill()
+
+        let cupRect = NSRect(x: 4, y: 6, width: 9, height: 7)
+        let cup = NSBezierPath(roundedRect: cupRect, xRadius: 2, yRadius: 2)
+        cup.lineWidth = 1.6
+        cup.stroke()
+
+        let handle = NSBezierPath()
+        handle.move(to: NSPoint(x: 13, y: 11))
+        handle.curve(
+            to: NSPoint(x: 13, y: 7.5),
+            controlPoint1: NSPoint(x: 17, y: 11),
+            controlPoint2: NSPoint(x: 17, y: 7.5)
+        )
+        handle.lineWidth = 1.6
+        handle.stroke()
+
+        let saucer = NSBezierPath()
+        saucer.move(to: NSPoint(x: 3, y: 4.5))
+        saucer.line(to: NSPoint(x: 15, y: 4.5))
+        saucer.lineWidth = 1.6
+        saucer.stroke()
+
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
     }
 
     @objc private func openManagementWindow() {
@@ -119,9 +169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func anotherInstanceIsRunning() -> Bool {
+        // Match this build's own executable name so each variant only guards against
+        // duplicates of itself (e.g. the claude build won't clash with the default build).
+        let ownProcessName = ProcessInfo.processInfo.processName
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-x", "DrinkingProject"]
+        process.arguments = ["-x", ownProcessName]
 
         let outputPipe = Pipe()
         process.standardOutput = outputPipe

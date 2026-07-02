@@ -31,6 +31,7 @@ final class AppController: ObservableObject {
 
     private(set) var shouldTestOnLaunch = false
     private(set) var shouldRunPersistenceSelfTest = false
+    private(set) var shouldTestBackgroundMedia = false
     private let friendlyMessages = [
         "喝一口水，顺便让眼睛休息一下。",
         "先喝水，再继续。",
@@ -52,6 +53,7 @@ final class AppController: ObservableObject {
         let arguments = Set(CommandLine.arguments.dropFirst())
         shouldTestOnLaunch = arguments.contains("--test-on-launch")
         shouldRunPersistenceSelfTest = arguments.contains("--self-test-persistence")
+        shouldTestBackgroundMedia = arguments.contains("--test-background-media")
         if arguments.contains("--resume-on-launch") {
             resumeToday()
         }
@@ -80,13 +82,14 @@ final class AppController: ObservableObject {
     }
 
     var statusItemTitle: String {
+        let base = paths.variant.statusItemTitle
         if activeReminder != nil {
-            return "水!"
+            return "\(base)!"
         }
         if settingsStore.isPausedToday {
-            return "水⏸"
+            return "\(base)⏸"
         }
-        return "水"
+        return base
     }
 
     var nextReminderText: String {
@@ -97,6 +100,8 @@ final class AppController: ObservableObject {
             return "下次提醒：暂无"
         }
         let formatter = DateFormatter()
+        formatter.calendar = UKDayClock.calendar
+        formatter.timeZone = UKDayClock.timeZone
         formatter.dateFormat = "MM-dd HH:mm"
         return "下次提醒：\(formatter.string(from: nextDate))"
     }
@@ -133,7 +138,8 @@ final class AppController: ObservableObject {
 
     func presentManagementWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        if let existing = NSApp.windows.first(where: { $0.title == "Drinking Project" }) {
+        let windowTitle = paths.variant.managementWindowTitle
+        if let existing = NSApp.windows.first(where: { $0.title == windowTitle }) {
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -148,7 +154,7 @@ final class AppController: ObservableObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "Drinking Project"
+        window.title = windowTitle
         window.center()
         window.contentView = NSHostingView(rootView: ContentView(controller: self))
         managementWindow = window
@@ -166,14 +172,19 @@ final class AppController: ObservableObject {
         let configuration = configuration(for: rule, isManual: isManual)
         let logLine = "[DrinkingProject] reminder_presenting manual=\(isManual) playground=\(configuration.isPlaygroundMode) rule_id=\(rule.id.uuidString)\n"
         FileHandle.standardOutput.write(Data(logLine.utf8))
-        BackgroundMediaControl.pauseLikelyMediaSources()
+        let mediaReport = BackgroundMediaControl.enforceBackgroundMediaPause()
         playReminderSound()
 
+        // Compact popup style never plays a video, so don't consume one from the shuffle bag.
+        let reminderVideoURL = configuration.windowStyle == .compactPopup
+            ? nil
+            : videoScanner.nextPlayableVideoURL()
         let reminder = ReminderWindowController(
-            videoURL: videoScanner.nextPlayableVideoURL(),
+            videoURL: reminderVideoURL,
             videoScanner: videoScanner,
             settingsStore: settingsStore,
             configuration: configuration,
+            mediaEnforcementReport: mediaReport,
             webResourceDirectory: paths.webResourceDirectory
         )
         activeReminder = reminder
@@ -193,12 +204,13 @@ final class AppController: ObservableObject {
             playbackMode: settingsStore.settings.playbackMode,
             isManual: isManual,
             playgroundModeEnabled: settingsStore.settings.playgroundModeEnabled,
-            friendlyMessage: friendlyMessages.randomElement() ?? "先喝一口水。"
+            friendlyMessage: friendlyMessages.randomElement() ?? "先喝一口水。",
+            windowStyle: settingsStore.settings.reminderWindowStyle
         )
     }
 
     private func playReminderSound() {
-        let volume = Float(max(0.0, min(100.0, settingsStore.settings.reminderVolume)) / 100.0)
+        let volume = settingsStore.settings.reminderAudioVolume
         guard volume > 0 else { return }
 
         for soundName in ["Ping", "Glass", "Tink"] {

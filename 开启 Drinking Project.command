@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h}"
 
 if pgrep -x "DrinkingProject" >/dev/null 2>&1; then
-  osascript -e 'display dialog "该项目已在运行中。" with title "Drinking Project" buttons {"好的"} default button "好的"' >/dev/null 2>&1 || true
+  osascript -e 'display dialog "Drinking Project 已在运行中。" with title "Drinking Project" buttons {"好的"} default button "好的"' >/dev/null 2>&1 || true
   exit 0
 fi
 

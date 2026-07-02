@@ -10,9 +10,11 @@ const state = {
   buttonText: "等待中",
   playbackMode: "advanceOnEnd",
   hasPlayableVideo: true,
+  isCompact: false,
   isPlaygroundMode: false,
   friendlyMessage: "喝一口水，顺便让眼睛休息一下。",
   testModeText: "测试模式：等待时间已缩短",
+  mediaWarningText: "",
   videoMessage: "未找到可播放视频，请检查 视频/视频素材/"
 };
 
@@ -39,12 +41,18 @@ function formatTime(totalSeconds) {
 function applyState(nextState) {
   Object.assign(state, nextState || {});
   const isSecondary = state.role === "secondary";
+  const isCompact = Boolean(state.isCompact);
 
   document.body.classList.toggle("secondary", isSecondary);
+  document.body.classList.toggle("compact", isCompact);
   document.body.classList.toggle("no-video", !state.hasPlayableVideo);
-  elements.videoWarning.hidden = state.hasPlayableVideo;
-  elements.videoWarning.textContent = state.videoMessage;
-  elements.playbackControl.hidden = isSecondary;
+  // Compact popup mode never plays a video, so the "no playable video" warning is noise there.
+  const warningText = isCompact
+    ? ""
+    : state.mediaWarningText || (!state.hasPlayableVideo ? state.videoMessage : "");
+  elements.videoWarning.hidden = !warningText;
+  elements.videoWarning.textContent = warningText;
+  elements.playbackControl.hidden = isSecondary || isCompact;
   elements.testModePill.hidden = !state.isPlaygroundMode || isSecondary;
   elements.testModePill.textContent = state.testModeText;
   if (elements.playbackMode.value !== state.playbackMode) {

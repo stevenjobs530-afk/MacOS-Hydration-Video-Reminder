@@ -24,37 +24,40 @@ struct LaunchAgentActionResult: Equatable {
 }
 
 enum LaunchAgentService {
-    static let label = "com.local.drinkingproject"
+    /// Default label kept for backward compatibility / callers that don't pass a variant.
+    static let label = AppVariant.standard.launchAgentLabel
 
-    static var plistURL: URL {
+    static func plistURL(for variant: AppVariant) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
+            .appendingPathComponent("Library/LaunchAgents/\(variant.launchAgentLabel).plist")
     }
 
-    static func status() -> LaunchAgentStatus {
-        LaunchAgentStatus(
+    static func status(variant: AppVariant = .standard) -> LaunchAgentStatus {
+        let plistURL = plistURL(for: variant)
+        return LaunchAgentStatus(
             isInstalled: FileManager.default.fileExists(atPath: plistURL.path),
-            isLoaded: launchctlSucceeds(["print", serviceTarget]),
+            isLoaded: launchctlSucceeds(["print", serviceTarget(for: variant)]),
             plistPath: plistURL.path
         )
     }
 
-    static func setEnabled(_ enabled: Bool, projectRoot: URL) -> LaunchAgentActionResult {
-        enabled ? install(projectRoot: projectRoot) : uninstall()
+    static func setEnabled(_ enabled: Bool, projectRoot: URL, variant: AppVariant = .standard) -> LaunchAgentActionResult {
+        enabled ? install(projectRoot: projectRoot, variant: variant) : uninstall(variant: variant)
     }
 
-    static func install(projectRoot: URL) -> LaunchAgentActionResult {
+    static func install(projectRoot: URL, variant: AppVariant = .standard) -> LaunchAgentActionResult {
+        let plistURL = plistURL(for: variant)
         do {
             guard let executableURL = Bundle.main.executableURL else {
                 throw LaunchAgentError.missingExecutable
             }
-            try writePlist(executableURL: executableURL, projectRoot: projectRoot)
+            try writePlist(executableURL: executableURL, projectRoot: projectRoot, variant: variant)
             _ = try runLaunchctl(["bootout", guiTarget, plistURL.path], allowFailure: true)
             _ = try runLaunchctl(["bootstrap", guiTarget, plistURL.path])
-            _ = try runLaunchctl(["enable", serviceTarget])
-            _ = try runLaunchctl(["kickstart", "-k", serviceTarget], allowFailure: true)
+            _ = try runLaunchctl(["enable", serviceTarget(for: variant)])
+            _ = try runLaunchctl(["kickstart", "-k", serviceTarget(for: variant)], allowFailure: true)
 
-            let currentStatus = status()
+            let currentStatus = status(variant: variant)
             return LaunchAgentActionResult(
                 succeeded: currentStatus.isInstalled,
                 status: currentStatus,
@@ -71,7 +74,8 @@ enum LaunchAgentService {
         }
     }
 
-    static func uninstall() -> LaunchAgentActionResult {
+    static func uninstall(variant: AppVariant = .standard) -> LaunchAgentActionResult {
+        let plistURL = plistURL(for: variant)
         do {
             _ = try runLaunchctl(["bootout", guiTarget, plistURL.path], allowFailure: true)
             if FileManager.default.fileExists(atPath: plistURL.path) {
@@ -79,13 +83,13 @@ enum LaunchAgentService {
             }
             return LaunchAgentActionResult(
                 succeeded: true,
-                status: status(),
+                status: status(variant: variant),
                 message: "开机自动运行已关闭；这不会退出当前正在运行的 App。"
             )
         } catch {
             return LaunchAgentActionResult(
                 succeeded: false,
-                status: status(),
+                status: status(variant: variant),
                 message: "开机自动运行关闭失败：\(error.localizedDescription)"
             )
         }
@@ -95,28 +99,35 @@ enum LaunchAgentService {
         "gui/\(getuid())"
     }
 
-    private static var serviceTarget: String {
-        "\(guiTarget)/\(label)"
+    private static func serviceTarget(for variant: AppVariant) -> String {
+        "\(guiTarget)/\(variant.launchAgentLabel)"
     }
 
-    private static func writePlist(executableURL: URL, projectRoot: URL) throws {
+    private static func writePlist(executableURL: URL, projectRoot: URL, variant: AppVariant) throws {
+        let plistURL = plistURL(for: variant)
         try FileManager.default.createDirectory(
             at: plistURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
 
+        var programArguments = [
+            executableURL.path,
+            "--project-dir",
+            projectRoot.path,
+            "--resume-on-launch"
+        ]
+        if !variant.isDefault {
+            programArguments.append(contentsOf: ["--variant", variant.id])
+        }
+        let logSuffix = variant.isDefault ? "" : ".\(variant.id)"
+
         let plist: [String: Any] = [
-            "Label": label,
-            "ProgramArguments": [
-                executableURL.path,
-                "--project-dir",
-                projectRoot.path,
-                "--resume-on-launch"
-            ],
+            "Label": variant.launchAgentLabel,
+            "ProgramArguments": programArguments,
             "WorkingDirectory": projectRoot.path,
             "RunAtLoad": true,
-            "StandardOutPath": "/tmp/drinkingproject.out.log",
-            "StandardErrorPath": "/tmp/drinkingproject.err.log"
+            "StandardOutPath": "/tmp/drinkingproject\(logSuffix).out.log",
+            "StandardErrorPath": "/tmp/drinkingproject\(logSuffix).err.log"
         ]
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist,

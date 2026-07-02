@@ -3,6 +3,9 @@
 .swiftpm/
 DerivedData/
 dist/
+**/*.app/
+软甲本体/
+**/软甲本体/
 
 # macOS metadata
 .DS_Store
@@ -11,6 +14,25 @@ dist/
 
 # Runtime logs
 *.log
+*.out
+*.err
+
+# Local-only wrappers, exports, and user data
+/Drinking Project 2 (Claude)/
+/Drinking Project 2 Cloud/
+/Test[ ]/
+给 Codex 的*.md
+视频随机播放排查与后续操作指南.md
+Application Support/
+LaunchAgents/
+reminder-rules.json
+video-library.json
+settings.json
+history.json
+*.corrupt-*
+*.sqlite
+*.sqlite3
+*.db
 
 # Local user media.
 # Keep the folder and placeholder docs, but never publish private videos/images.
